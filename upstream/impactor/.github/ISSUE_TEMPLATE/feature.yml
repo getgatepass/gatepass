@@ -1,0 +1,21 @@
+name: Create Feature Request
+description: Suggest a feature to be implemented to Impactor.
+title: '[Feature] '
+labels:
+  - enhancement
+
+body:
+  - type: textarea
+    id: text
+    attributes:
+      label: Request
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: agreement
+    attributes:
+      label: Contributor Checks
+      options:
+        - label: I am willing to attempt to make a pull request with these requested features
+          required: false

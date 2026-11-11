@@ -1,0 +1,41 @@
+[package]
+name = "gatepass-engine"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Headless signing/installing engine for GatePass, built on Impactor's crates."
+
+[[bin]]
+name = "gatepass-engine"
+path = "src/main.rs"
+
+[dependencies]
+plume_core = { path = "../upstream/impactor/crates/plume_core", features = ["tweaks"] }
+plume_utils = { path = "../upstream/impactor/crates/plume_utils" }
+plume_store = { path = "../upstream/impactor/crates/plume_store" }
+idevice = { git = "https://github.com/jkcoxson/idevice", rev = "5171e34e3a236842af1160a84d955d037ddca3af", default-features = false, features = [
+    "full",
+    "ring",
+] }
+tokio = { version = "1.43", features = ["rt-multi-thread", "macros", "fs"] }
+futures = { version = "0.3", default-features = false, features = ["std"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "ring"] }
+plist = "1.8"
+chrono = { version = "0.4", default-features = false, features = ["std", "serde", "clock"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4.5", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.11"
+uuid = { version = "1.3", features = ["v4"] }
+libc = "0.2"
+
+[patch.crates-io]
+apple-codesign = { path = "../upstream/impactor/3rdparty/apple-codesign-0.29.0" }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = "symbols"

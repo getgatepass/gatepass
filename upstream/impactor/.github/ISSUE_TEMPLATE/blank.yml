@@ -1,0 +1,13 @@
+name: Create Blank Issue
+description: Blank issue report for Impactor. Use this for anything other than a bug or feature request.
+title: '[Help] '
+labels:
+   - "help wanted"
+
+body:
+  - type: textarea
+    id: text
+    attributes:
+      label: Content
+    validations:
+      required: true

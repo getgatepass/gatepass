@@ -1,0 +1,19 @@
+[package]
+name = "plume_store"
+description = "Data storage layer for Plume Impactor tools."
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+plume_core = { path = "../plume_core", features = ["tweaks"] }
+
+# [GatePass] keep Apple session tokens in the macOS Keychain instead of accounts.json
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "2.11"

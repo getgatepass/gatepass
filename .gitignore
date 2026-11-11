@@ -1,0 +1,8 @@
+.DS_Store
+/build/
+/engine/target/
+/app/.build/
+/app/.swiftpm/
+# source 3D model (the optimised copy lives in site/models/)
+/MacBook Pro PROLED XDR 3D Model/
+/MacBook Pro PROLED XDR 3D Model.zip
