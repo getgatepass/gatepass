@@ -1,6 +1,6 @@
 [package]
 name = "gatepass-engine"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 license = "MIT"
 description = "Headless signing/installing engine for GatePass, built on Impactor's crates."
@@ -30,6 +30,8 @@ log = "0.4"
 env_logger = "0.11"
 uuid = { version = "1.3", features = ["v4"] }
 libc = "0.2"
+mdns-sd = "0.13"
+tracing = { version = "0.1", features = ["log"] }
 
 [patch.crates-io]
 apple-codesign = { path = "../upstream/impactor/3rdparty/apple-codesign-0.29.0" }

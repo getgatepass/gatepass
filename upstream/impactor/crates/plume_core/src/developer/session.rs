@@ -1,6 +1,7 @@
 use omnisette::AnisetteConfiguration;
 use reqwest::header::HeaderName;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 
 use plist::{Dictionary, Value};
@@ -21,6 +22,7 @@ pub struct DeveloperSession {
     client: Client,
     adsid: String,          // from grandslam's SPD "adsid"
     xcode_gs_token: String, // requested from spd initially // com.apple.gs.xcode.auth
+    tvos: AtomicBool,       // target Apple TV: QH requests must carry the tvOS platform
 }
 
 impl DeveloperSession {
@@ -43,6 +45,7 @@ impl DeveloperSession {
             client: account.client.clone(),
             adsid: adsid.into(),
             xcode_gs_token,
+            tvos: AtomicBool::new(false),
         })
     }
 
@@ -67,6 +70,7 @@ impl DeveloperSession {
             client,
             adsid,
             xcode_gs_token,
+            tvos: AtomicBool::new(false),
         };
 
         // we test the session by listing teams
@@ -82,6 +86,13 @@ impl DeveloperSession {
 
     pub fn xcode_gs_token(&self) -> &String {
         &self.xcode_gs_token
+    }
+
+    /// Route developer requests (devices, certs, app IDs, profiles) to the tvOS platform.
+    /// Without this, Apple looks for iOS devices only and an Apple TV-only team gets
+    /// error 8220 "Your team has no devices from which to generate a provisioning profile".
+    pub fn set_tvos(&self, tvos: bool) {
+        self.tvos.store(tvos, Ordering::Relaxed);
     }
 }
 
@@ -102,6 +113,10 @@ impl DeveloperSession {
             "requestId".into(),
             Value::String(Uuid::new_v4().to_string().to_uppercase()),
         );
+        if self.tvos.load(Ordering::Relaxed) {
+            body.insert("DTDK_Platform".into(), Value::String("tvos".into()));
+            body.insert("subPlatform".into(), Value::String("tvOS".into()));
+        }
 
         let request_builder = self.client.post(url).headers(headers);
 

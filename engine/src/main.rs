@@ -8,6 +8,8 @@
 mod devices;
 mod events;
 mod install;
+mod pairing;
+mod tv;
 mod refresh;
 
 use std::path::PathBuf;
@@ -79,6 +81,18 @@ enum Command {
         #[arg(long)]
         bundle_id: String,
     },
+    /// Find Apple TVs showing the pairing screen (Remote App and Devices)
+    PairScan {
+        #[arg(long, default_value_t = 4)]
+        seconds: u64,
+    },
+    /// Pair with an Apple TV using the code it shows on screen
+    Pair {
+        #[arg(long)]
+        host: String,
+        #[arg(long)]
+        port: u16,
+    },
     /// List user-installed apps on a device
     Installed {
         #[arg(long)]
@@ -145,6 +159,8 @@ async fn main() {
             bundle_id,
         } => refresh::refresh(udid, force, bundle_id).await,
         Command::Forget { udid, bundle_id } => refresh::forget(udid, bundle_id).await,
+        Command::PairScan { seconds } => pairing::scan(seconds).await,
+        Command::Pair { host, port } => pairing::pair(host, port).await,
         Command::Installed { udid } => devices::print_user_apps(&udid).await,
     };
 
@@ -176,6 +192,9 @@ fn friendly_error(e: &anyhow::Error) -> String {
         "Sign-in was cancelled."
     } else if lower.contains("not found") && lower.contains("device") {
         "Device not found. Make sure it's connected by cable or on the same Wi-Fi network."
+    } else if lower.contains("apple tv") {
+        // Pairing errors from pairing.rs are already written for people.
+        ""
     } else if lower.contains("pair") {
         "This device isn't paired with this Mac. Unlock it and tap \"Trust\"."
     } else {

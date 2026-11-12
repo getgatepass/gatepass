@@ -75,12 +75,13 @@ pub async fn refresh(udid: String, force: bool, only: Option<String>) -> Result<
         .clone();
 
     progress("Looking for device…", 5);
-    let device = devices::find(&udid).await?;
+    let mut device = devices::find(&udid).await?;
 
     progress("Checking Apple ID…", 10);
     let (session, team_id) = session_for(&account).await?;
+    session.set_tvos(device.is_apple_tv().await);
     session
-        .qh_ensure_device(&team_id, &device.name, &device.udid)
+        .qh_ensure_device(&team_id, &device.name().to_string(), &device.udid().to_string())
         .await?;
     let ident = identity(&session, &team_id).await?;
     let identity_is_new = ident.new;

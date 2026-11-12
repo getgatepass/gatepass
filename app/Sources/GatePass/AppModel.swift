@@ -2,9 +2,9 @@ import Foundation
 import SwiftUI
 import UserNotifications
 
-/// A question the engine is waiting on (2FA code, confirmation).
+/// A question the engine is waiting on (2FA code, Apple TV code, confirmation).
 struct PendingPrompt: Identifiable {
-    enum Kind { case twoFactor(method: String, phones: [(id: Int, lastTwo: String)]), confirm(title: String, message: String) }
+    enum Kind { case twoFactor(method: String, phones: [(id: Int, lastTwo: String)]), confirm(title: String, message: String), pin }
     let id = UUID()
     let kind: Kind
     let respond: (String) -> Void
@@ -28,6 +28,9 @@ final class AppModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var toast: String?
     @Published var showLogin = false
+    @Published var showPairTV = false
+    /// Shown inside the Add Apple TV sheet (alerts can't appear on top of an open sheet).
+    @Published var pairError: String?
     @Published var advancedFile: IPAFile?
     @Published var lastAutoCheck: Date?
     @Published var quota: Quota?
@@ -87,7 +90,10 @@ final class AppModel: ObservableObject {
         guard !busy else { return }
         guard let result = try? await Engine.run(["devices"]),
               let list = result["devices"] as? [JSON] else { return }
-        let fresh = list.compactMap(Device.init(json:))
+        var seen = Set<String>()
+        let fresh = list.compactMap(Device.init(json:)).filter {
+            seen.insert($0.udid.replacingOccurrences(of: "-", with: "").uppercased()).inserted
+        }
         if fresh != devices {
             withAnimation(.snappy) { devices = fresh }
         }
@@ -247,6 +253,42 @@ final class AppModel: ObservableObject {
         await reloadApps()
     }
 
+    // MARK: Apple TV pairing
+
+    /// Pairs an Apple TV with the code on its screen. Afterwards it shows up like any Wi-Fi device.
+    func pairAppleTV(_ tv: PairableTV) async -> Bool {
+        pairError = nil
+        var result: JSON?
+        let ok = await perform(
+            title: "Pairing \(tv.name)",
+            args: ["pair", "--host", tv.host, "--port", String(tv.port)],
+            onDone: { result = $0 }
+        )
+        guard ok else {
+            pairError = errorMessage ?? "Pairing failed."
+            errorMessage = nil
+            return false
+        }
+        let device = result?["device"] as? JSON
+        let udid = device?["udid"] as? String
+        let name = device?["name"] as? String ?? tv.name
+        await reloadDevices()
+        if let udid, devices.contains(where: { $0.udid == udid }) {
+            selectedDeviceID = udid
+            showToast("\(name) paired ✓")
+        } else {
+            showToast("\(name) paired ✓ — it will appear in a moment")
+            Task {
+                for _ in 0..<6 {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    await reloadDevices()
+                    if let udid, devices.contains(where: { $0.udid == udid }) { selectedDeviceID = udid; break }
+                }
+            }
+        }
+        return true
+    }
+
     func isConnected(_ udid: String) -> Bool { devices.contains { $0.udid == udid } }
 
     private func autoRefreshIfNeeded() async {
@@ -267,7 +309,7 @@ final class AppModel: ObservableObject {
     // MARK: Plumbing
 
     /// Runs an engine job with progress UI and prompt handling. Returns success.
-    private func perform(title: String, args: [String], input: String? = nil, quiet: Bool = false) async -> Bool {
+    private func perform(title: String, args: [String], input: String? = nil, quiet: Bool = false, onDone: ((JSON) -> Void)? = nil) async -> Bool {
         guard !busy else {
             if !quiet { errorMessage = "Already working on something — wait a moment." }
             return false
@@ -282,7 +324,7 @@ final class AppModel: ObservableObject {
             withAnimation(.snappy) { activity = nil }
         }
         do {
-            try await Engine.run(
+            let final = try await Engine.run(
                 args,
                 input: input,
                 handle: handle,
@@ -300,6 +342,7 @@ final class AppModel: ObservableObject {
                     await self?.ask(event) ?? ""
                 }
             )
+            onDone?(final)
             return true
         } catch is CancellationError {
             showToast("Stopped")
@@ -326,6 +369,8 @@ final class AppModel: ObservableObject {
                     (id: $0["id"] as? Int ?? 0, lastTwo: $0["lastTwo"] as? String ?? "")
                 }
                 prompt = PendingPrompt(kind: .twoFactor(method: event["method"] as? String ?? "device", phones: phones), respond: respond)
+            case "pin":
+                prompt = PendingPrompt(kind: .pin, respond: respond)
             default:
                 prompt = PendingPrompt(
                     kind: .confirm(title: event["title"] as? String ?? "Confirm", message: event["message"] as? String ?? ""),

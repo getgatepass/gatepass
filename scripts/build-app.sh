@@ -66,6 +66,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSLocalNetworkUsageDescription</key><string>GatePass finds and pairs with your Apple TV on the local network.</string>
+  <key>NSBonjourServices</key>
+  <array><string>_remotepairing-manual-pairing._tcp</string><string>_remotepairing._tcp</string><string>_apple-mobdev2._tcp</string></array>
   <key>NSHumanReadableCopyright</key><string>Open source · MIT</string>
   <key>CFBundleDocumentTypes</key>
   <array>

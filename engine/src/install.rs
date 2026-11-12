@@ -188,10 +188,15 @@ pub async fn install(ipa: PathBuf, udid: Option<String>, opts: InstallOpts) -> R
     if let Some(account) = &account {
         progress("Checking Apple ID…", 30);
         let (session, team_id) = session_for(account).await?;
+        if let Some(dev) = &device {
+            session.set_tvos(dev.is_apple_tv().await);
+        }
         let ident = identity(&session, &team_id).await?;
         if let Some(dev) = &device {
             progress("Registering device…", 38);
-            session.qh_ensure_device(&team_id, &dev.name, &dev.udid).await?;
+            session
+                .qh_ensure_device(&team_id, &dev.name().to_string(), &dev.udid().to_string())
+                .await?;
         }
         let mut signer = Signer::new(Some(ident), options);
         progress("Signing…", 50);
@@ -214,7 +219,7 @@ pub async fn install(ipa: PathBuf, udid: Option<String>, opts: InstallOpts) -> R
         return Ok(());
     }
 
-    let device = device.expect("device checked above");
+    let mut device = device.expect("device checked above");
     progress("Sending to device…", 70);
     device
         .install_app(bundle.bundle_dir(), |p: i32| async move {
@@ -245,12 +250,12 @@ pub async fn install(ipa: PathBuf, udid: Option<String>, opts: InstallOpts) -> R
 async fn save_for_refresh(
     store: &mut AccountStore,
     account: &GsaAccount,
-    device: &plume_utils::Device,
+    device: &devices::Target,
     bundle: &Bundle,
 ) -> Result<RefreshApp> {
     let _critical = crate::events::Critical::enter();
     let bundle_id = bundle.get_bundle_identifier();
-    let dir = data_path().join("apps").join(&device.udid);
+    let dir = data_path().join("apps").join(device.udid());
     tokio::fs::create_dir_all(&dir).await?;
     let dest = dir.join(format!(
         "{}.app",
@@ -273,17 +278,17 @@ async fn save_for_refresh(
     };
 
     let mut rd = store
-        .get_refresh_device(&device.udid)
+        .get_refresh_device(device.udid())
         .cloned()
         .unwrap_or_else(|| RefreshDevice {
-            udid: device.udid.clone(),
-            name: device.name.clone(),
+            udid: device.udid().to_string(),
+            name: device.name().to_string(),
             account: account.email().clone(),
             apps: Vec::new(),
             is_mac: false,
         });
     rd.account = account.email().clone();
-    rd.name = device.name.clone();
+    rd.name = device.name().to_string();
     rd.apps.retain(|a| a.bundle_id != bundle_id);
     rd.apps.push(app.clone());
     store.add_or_update_refresh_device(rd).await?;

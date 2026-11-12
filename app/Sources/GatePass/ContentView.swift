@@ -30,6 +30,7 @@ struct ContentView: View {
         .overlay(alignment: .top) { ToastView() }
         .sheet(isPresented: $model.showLogin) { LoginSheet() }
         .sheet(isPresented: Binding(get: { !didOnboard }, set: { if !$0 { didOnboard = true } })) { WelcomeView() }
+        .sheet(isPresented: $model.showPairTV) { PairAppleTVSheet() }
         .sheet(item: $model.advancedFile) { file in AdvancedInstallSheet(file: file) }
         .sheet(item: twoFactorBinding) { prompt in TwoFactorSheet(prompt: prompt) }
         .alert(confirmTitle, isPresented: confirmPresented, presenting: model.prompt) { prompt in
@@ -284,6 +285,11 @@ struct DeviceStrip: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button { model.showPairTV = true } label: {
+                    Label("Add Apple TV", systemImage: "appletv")
+                }
+                .buttonStyle(.borderless)
+                .disabled(model.isBusy)
                 ProgressView().controlSize(.small)
             }
             .padding(16)
@@ -295,9 +301,38 @@ struct DeviceStrip: View {
                         DeviceCard(device: device, selected: device.udid == model.selectedDevice?.udid)
                             .onTapGesture { withAnimation(.snappy) { model.selectedDeviceID = device.udid } }
                     }
+                    AddAppleTVCard()
                 }
             }
         }
+    }
+}
+
+/// Opens the Apple TV pairing sheet (Apple TVs have no cable, so they pair with a code).
+struct AddAppleTVCard: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        Button { model.showPairTV = true } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Add Apple TV").font(.system(size: 13, weight: .semibold))
+                    Text("Pair with a code").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.isBusy)
+        .help("Pair an Apple TV over Wi-Fi")
     }
 }
 
