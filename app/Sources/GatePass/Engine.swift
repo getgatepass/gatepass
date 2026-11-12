@@ -55,9 +55,9 @@ enum Engine {
         process.arguments = args
         var env = ProcessInfo.processInfo.environment
         env["RUST_LOG"] = env["RUST_LOG"] ?? "info"
-        // Default "local": sign-in identity comes from this Mac; no third-party anisette server.
-        let anisette = UserDefaults.standard.string(forKey: Pref.anisette) ?? "local"
-        env["GATEPASS_ANISETTE"] = ["local", "auto", "remote"].contains(anisette) ? anisette : "local"
+        // Sign-in identity always comes from this Mac. Public anisette servers are rejected
+        // by Apple (403 at 2FA, -80045 at login), so they are not offered.
+        env["GATEPASS_ANISETTE"] = "local"
         if UserDefaults.standard.bool(forKey: Pref.keychain) { env["GATEPASS_KEYCHAIN"] = "1" }
         process.environment = env
 

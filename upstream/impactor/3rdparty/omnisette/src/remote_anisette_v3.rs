@@ -263,7 +263,7 @@ impl AnisetteClient {
                 if message.contains("-45061") {
                     Err(AnisetteError::AnisetteNotProvisioned)
                 } else {
-                    panic!("Unknown error {}", message)
+                    Err(anyhow::anyhow!("Anisette server error: {message}").into())
                 }
             }
             AnisetteHeaders::Headers {
@@ -297,22 +297,22 @@ impl AnisetteClient {
         let protocol_val = plist::Value::from_reader(Cursor::new(text.as_str()))?;
         let urls = protocol_val
             .as_dictionary()
-            .unwrap()
+            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?
             .get("urls")
-            .unwrap()
+            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?
             .as_dictionary()
-            .unwrap();
+            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?;
 
         let start_provisioning_url = urls
             .get("midStartProvisioning")
-            .unwrap()
+            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?
             .as_string()
-            .unwrap();
+            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?;
         let end_provisioning_url = urls
             .get("midFinishProvisioning")
-            .unwrap()
+            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?
             .as_string()
-            .unwrap();
+            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?;
         debug!(
             "Got provisioning urls: {} and {}",
             start_provisioning_url, end_provisioning_url
@@ -338,11 +338,13 @@ impl AnisetteClient {
         }
 
         loop {
-            let Some(Ok(data)) = connection.next().await else {
-                continue;
+            let data = match connection.next().await {
+                Some(Ok(data)) => data,
+                Some(Err(e)) => return Err(e.into()),
+                None => return Err(anyhow::anyhow!("Anisette server closed the connection").into()),
             };
             if data.is_text() {
-                let txt = data.to_text().unwrap();
+                let txt = data.to_text()?;
                 let msg: ProvisionInput = serde_json::from_str(txt)?;
                 match msg {
                     ProvisionInput::GiveIdentifier => {
@@ -377,15 +379,15 @@ impl AnisetteClient {
                         let protocol_val = plist::Value::from_reader(Cursor::new(text.as_str()))?;
                         let spim = protocol_val
                             .as_dictionary()
-                            .unwrap()
+            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?
                             .get("Response")
-                            .unwrap()
+                            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?
                             .as_dictionary()
-                            .unwrap()
+                            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?
                             .get("spim")
-                            .unwrap()
+                            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?
                             .as_string()
-                            .unwrap();
+                            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?;
 
                         debug!("GiveStartProvisioningData");
                         #[derive(Serialize)]
@@ -419,11 +421,11 @@ impl AnisetteClient {
                         let protocol_val = plist::Value::from_reader(Cursor::new(text.as_str()))?;
                         let response = protocol_val
                             .as_dictionary()
-                            .unwrap()
+            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?
                             .get("Response")
-                            .unwrap()
+                            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?
                             .as_dictionary()
-                            .unwrap();
+                            .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?;
 
                         debug!("GiveEndProvisioningData");
 
@@ -433,8 +435,14 @@ impl AnisetteClient {
                             tk: &'t str,
                         }
                         let end_provisioning = EndProvisioning {
-                            ptm: response.get("ptm").unwrap().as_string().unwrap(),
-                            tk: response.get("tk").unwrap().as_string().unwrap(),
+                            ptm: response
+                                .get("ptm")
+                                .and_then(|v| v.as_string())
+                                .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?,
+                            tk: response
+                                .get("tk")
+                                .and_then(|v| v.as_string())
+                                .ok_or_else(|| AnisetteError::from(anyhow::anyhow!("Unexpected provisioning response from Apple")))?,
                         };
                         connection
                             .send(Message::Text(
@@ -489,7 +497,31 @@ impl AnisetteHeadersProvider for RemoteAnisetteProviderV3 {
         _skip_provisioning: bool,
     ) -> Result<HashMap<String, String>, AnisetteError> {
         if self.client.is_none() {
-            self.client = Some(AnisetteClient::new(self.client_url.clone()).await?);
+            // [GatePass] try the configured server, then the other known public servers.
+            let mut urls = vec![self.client_url.clone()];
+            urls.extend(
+                crate::FALLBACK_ANISETTE_URLS_V3
+                    .iter()
+                    .map(|u| u.to_string())
+                    .filter(|u| *u != self.client_url),
+            );
+            let mut last_err = None;
+            for url in urls {
+                match AnisetteClient::new(url.clone()).await {
+                    Ok(c) => {
+                        log::info!("Using public anisette server {url}");
+                        self.client = Some(c);
+                        break;
+                    }
+                    Err(e) => {
+                        log::warn!("Anisette server {url} unavailable: {e}");
+                        last_err = Some(e);
+                    }
+                }
+            }
+            if self.client.is_none() {
+                return Err(last_err.unwrap_or(AnisetteError::Misc));
+            }
         }
         let client = self.client.as_ref().unwrap();
 
@@ -518,7 +550,7 @@ impl AnisetteHeadersProvider for RemoteAnisetteProviderV3 {
                     plist::to_file_xml(config_path, state)?;
                     client.get_headers(&state).await?
                 } else {
-                    panic!()
+                    return Err(err);
                 }
             }
         };

@@ -6,7 +6,6 @@ enum Pref {
     static let autoRefresh = "autoRefresh"    // Bool, default true
     static let notifications = "notifications" // Bool, default true
     static let devMode = "devMode"            // Bool, default false
-    static let anisette = "anisette"          // "local" | "auto" | "remote"
     static let didOnboard = "didOnboard"      // Bool
     static let keychain = "useKeychain"       // Bool, default false
 
@@ -84,7 +83,6 @@ struct GeneralSettings: View {
 
 struct AdvancedSettings: View {
     @AppStorage(Pref.devMode) private var devMode = false
-    @AppStorage(Pref.anisette) private var anisette = "local"
 
     var body: some View {
         Form {
@@ -95,16 +93,6 @@ struct AdvancedSettings: View {
             }
 
             if devMode {
-                Section("Sign-in identity (anisette)") {
-                    Picker("Source", selection: $anisette) {
-                        Text("Local — this Mac (recommended)").tag("local")
-                        Text("Automatic — local, then public server").tag("auto")
-                        Text("Public server").tag("remote")
-                    }
-                    Text("Local means Apple sees your real Mac and no data goes to a third party. Use a public server only if local doesn't work.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-
                 Section("Troubleshooting") {
                     Button("Open Log (engine.log)") { NSWorkspace.shared.open(EngineLog.url) }
                     Button("Open Data Folder") {

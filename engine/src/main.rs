@@ -42,6 +42,9 @@ enum Command {
     },
     /// Show saved accounts
     Accounts,
+    /// Diagnostics: obtain sign-in identity (anisette) and print which header names came back
+    #[command(hide = true)]
+    AnisetteCheck,
     /// Free-account limits: App IDs left this week, active apps per device
     Quota,
     /// Read name/bundle id/version/icon from an .ipa without installing
@@ -131,6 +134,19 @@ pub fn anisette() -> AnisetteConfiguration {
     AnisetteConfiguration::default().set_configuration_path(data_path())
 }
 
+async fn anisette_check() -> Result<()> {
+    let data = plume_core::auth::anisette_data::AnisetteData::new(anisette()).await?;
+    let mut names: Vec<_> = data
+        .generate_headers(false, true, true)
+        .into_iter()
+        .filter(|(_, v)| !v.is_empty())
+        .map(|(k, _)| k)
+        .collect();
+    names.sort();
+    emit(json!({ "type": "anisette", "headers": names }));
+    Ok(())
+}
+
 pub async fn load_store() -> Result<AccountStore> {
     Ok(AccountStore::load(&Some(store_path())).await?)
 }
@@ -149,6 +165,7 @@ async fn main() {
         Command::Login => login().await,
         Command::Logout { email } => logout(email).await,
         Command::Accounts => accounts().await,
+        Command::AnisetteCheck => anisette_check().await,
         Command::Quota => quota().await,
         Command::IpaInfo { ipa, icon_out } => install::ipa_info(ipa, icon_out),
         Command::Install { ipa, udid, opts } => install::install(ipa, udid, opts).await,
@@ -188,6 +205,10 @@ fn friendly_error(e: &anyhow::Error) -> String {
         "Incorrect email or password."
     } else if lower.contains("-21669") || lower.contains("verification code") || lower.contains("-21667") {
         "Incorrect verification code. Try again."
+    } else if lower.contains("anisette not provisioned") || lower.contains("anisette error: unsupported device") {
+        "This Mac isn't set up for Apple sign-in yet. Open System Settings and sign in to your Apple Account (or sign in to the App Store once), then try again. GatePass doesn't work in a virtual machine."
+    } else if lower.contains("-80045") {
+        "Apple temporarily refused this sign-in. Wait 15–30 minutes and try again."
     } else if lower.contains("sign-in cancelled") {
         "Sign-in was cancelled."
     } else if lower.contains("not found") && lower.contains("device") {

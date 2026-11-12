@@ -61,7 +61,13 @@ pub enum AnisetteError {
 
 pub const DEFAULT_ANISETTE_URL: &str = "https://ani.f1sh.me/";
 
-pub const DEFAULT_ANISETTE_URL_V3: &str = "https://mac-ani.jkcoxson.com";
+pub const DEFAULT_ANISETTE_URL_V3: &str = "https://ani.sidestore.io";
+
+/// [GatePass] Public v3 servers tried in order. ani.sidestore.io advertises macOS 13.1;
+/// mac-ani.jkcoxson.com advertises macOS 10.12, which Apple may reject during 2FA,
+/// so it is only the last resort.
+pub const FALLBACK_ANISETTE_URLS_V3: &[&str] =
+    &["https://ani.sidestore.io", "https://mac-ani.jkcoxson.com"];
 
 #[derive(Clone, Debug)]
 pub struct AnisetteConfiguration {
@@ -141,10 +147,11 @@ impl AnisetteHeaders {
     pub fn get_anisette_headers_provider(
         configuration: AnisetteConfiguration,
     ) -> Result<AnisetteHeadersProviderRes, AnisetteError> {
-        // [GatePass] On macOS prefer the machine's own identity; public servers advertise
-        // macOS 10.12, which Apple now rejects with 403 during 2FA.
-        // GATEPASS_ANISETTE: "local" (default: never contact third-party servers),
-        // "auto" (local, falling back to remote) or "remote".
+        // [GatePass] On macOS use the machine's own identity. Apple rejects identities
+        // from public anisette servers (403 during 2FA, -80045 at login), so the default
+        // never falls back to them.
+        // GATEPASS_ANISETTE: "local" (default), "auto" (local, then public server) or
+        // "remote" — the latter two only for debugging.
         #[cfg(target_os = "macos")]
         {
             let policy = std::env::var("GATEPASS_ANISETTE").unwrap_or_else(|_| "local".into());
@@ -163,7 +170,8 @@ impl AnisetteHeaders {
             }
         }
 
-        // TODO: handle Err because it will just go to remote anisette and not tell the user anything
+        // StoreServicesCore needs Android libraries we don't ship on macOS.
+        #[cfg(not(target_os = "macos"))]
         if let Ok(ssc_anisette_headers_provider) =
             AnisetteHeaders::get_ssc_anisette_headers_provider(configuration.clone())
         {
@@ -178,6 +186,9 @@ impl AnisetteHeaders {
                 configuration.macos_serial.clone(),
             ),
         )));
+
+        #[cfg(not(feature = "remote-anisette-v3"))]
+        Err(AnisetteError::UnsupportedDevice)
     }
 
     pub fn get_ssc_anisette_headers_provider(
