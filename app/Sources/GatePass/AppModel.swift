@@ -359,7 +359,13 @@ final class AppModel: ObservableObject {
 
     private func ask(_ event: JSON) async -> String {
         await withCheckedContinuation { continuation in
+            // One-shot: SwiftUI can fire the answer twice (onChange re-runs after the code field
+            // normalizes pasted "123 456", or Return hits Confirm after auto-submit). Resuming a
+            // checked continuation twice is a fatal error, so later answers are ignored.
+            var answered = false
             let respond: (String) -> Void = { [weak self] answer in
+                guard !answered else { return }
+                answered = true
                 self?.prompt = nil
                 continuation.resume(returning: answer)
             }
