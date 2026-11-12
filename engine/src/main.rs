@@ -143,7 +143,11 @@ async fn anisette_check() -> Result<()> {
         .map(|(k, _)| k)
         .collect();
     names.sort();
-    emit(json!({ "type": "anisette", "headers": names }));
+    emit(json!({
+        "type": "anisette",
+        "headers": names,
+        "diagnostics": plume_core::anisette_diagnostics(),
+    }));
     Ok(())
 }
 
@@ -187,9 +191,26 @@ async fn main() {
     }
 }
 
+/// The error and its causes, skipping causes whose text the previous level already shows
+/// (wrapped errors otherwise repeat the same message two or three times).
+fn error_chain(e: &anyhow::Error) -> String {
+    let mut out = String::new();
+    for cause in e.chain() {
+        let text = cause.to_string();
+        if out.contains(&text) {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push_str(": ");
+        }
+        out.push_str(&text);
+    }
+    out
+}
+
 /// Turn low-level errors into messages a normal person understands.
 fn friendly_error(e: &anyhow::Error) -> String {
-    let raw = format!("{e:#}");
+    let raw = error_chain(e);
     let lower = raw.to_lowercase();
     let hint = if lower.contains("no account") {
         "You're not signed in. Sign in with your Apple ID."
@@ -206,7 +227,7 @@ fn friendly_error(e: &anyhow::Error) -> String {
     } else if lower.contains("-21669") || lower.contains("verification code") || lower.contains("-21667") {
         "Incorrect verification code. Try again."
     } else if lower.contains("anisette not provisioned") || lower.contains("anisette error: unsupported device") {
-        "This Mac isn't set up for Apple sign-in yet. Open System Settings and sign in to your Apple Account (or sign in to the App Store once), then try again. GatePass doesn't work in a virtual machine."
+        "macOS didn't give GatePass this Mac's Apple sign-in identity, so sign-in can't continue. This has nothing to do with your password. GatePass doesn't work in a virtual machine or on a Hackintosh. Otherwise, please send the developer a screenshot of this whole message — the details below say what went wrong."
     } else if lower.contains("-80045") {
         "Apple temporarily refused this sign-in. Wait 15–30 minutes and try again."
     } else if lower.contains("sign-in cancelled") {

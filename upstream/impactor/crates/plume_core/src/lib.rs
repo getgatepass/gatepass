@@ -5,6 +5,9 @@ mod utils;
 pub use apple_codesign::{AppleCodesignError, SettingsScope, SigningSettings, UnifiedSigner};
 
 pub use omnisette::AnisetteConfiguration;
+// [GatePass] shareable summary of why this Mac can't provide anisette
+#[cfg(target_os = "macos")]
+pub use omnisette::aos_kit::diagnostics as anisette_diagnostics;
 
 pub use utils::{CertificateIdentity, MachO, MachOExt, MobileProvision};
 

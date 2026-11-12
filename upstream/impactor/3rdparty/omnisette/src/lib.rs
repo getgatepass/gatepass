@@ -162,8 +162,10 @@ impl AnisetteHeaders {
                         return Ok(AnisetteHeadersProviderRes::local(Box::new(p)));
                     }
                     Err(e) if policy == "local" => {
-                        log::error!("Local AOSKit anisette unavailable: {e}");
-                        return Err(e);
+                        // [GatePass] attach a shareable diagnostic summary to the error
+                        let diag = aos_kit::diagnostics();
+                        log::error!("Local AOSKit anisette unavailable: {e} [{diag}]");
+                        return Err(AnisetteError::Anyhow(anyhow::anyhow!("{e} [diag: {diag}]")));
                     }
                     Err(e) => log::warn!("Local AOSKit anisette unavailable ({e}), falling back"),
                 }

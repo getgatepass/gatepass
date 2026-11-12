@@ -118,3 +118,294 @@ unsafe fn dict_string(dict: *mut Object, key: &str) -> Option<String> {
         rust_string(value)
     }
 }
+
+// ---------------------------------------------------------------------------
+// [GatePass] Diagnostics for when this Mac can't provide anisette.
+//
+// Everything here is read-only and local. It contains no personal data (no
+// serial number, device id or account), so users can share it publicly.
+// ---------------------------------------------------------------------------
+
+/// Machine-readable summary, one item per field, e.g.
+/// `adi=-45061 otp=missing akd=running adid=running macOS=15.3 (24D60) model=Mac14,2 arch=arm64 vm=no icloud=1`.
+pub fn diagnostics() -> String {
+    // Make sure the frameworks are loaded even if the provider failed before loading them.
+    for path in [AOSKIT, AUTHKIT] {
+        let c = CString::new(path).unwrap();
+        unsafe { libc::dlopen(c.as_ptr(), libc::RTLD_NOW) };
+    }
+    let mut parts = Vec::new();
+
+    parts.push(format!("adi={}", adi_otp_status()));
+    parts.push(format!("otp={}", aoskit_otp_status()));
+
+    let procs = running_process_names();
+    for name in ["akd", "adid"] {
+        let state = match &procs {
+            Some(p) if p.iter().any(|n| n == name) => "running",
+            Some(_) => "not-running",
+            None => "unknown",
+        };
+        parts.push(format!("{name}={state}"));
+    }
+
+    let version = sysctl_string("kern.osproductversion").unwrap_or_else(|| "?".into());
+    let build = sysctl_string("kern.osversion").unwrap_or_else(|| "?".into());
+    parts.push(format!("macOS={version} ({build})"));
+    parts.push(format!(
+        "model={}",
+        sysctl_string("hw.model").unwrap_or_else(|| "?".into())
+    ));
+    let translated = sysctl_i32("sysctl.proc_translated") == Some(1);
+    parts.push(format!(
+        "arch={}{}",
+        std::env::consts::ARCH,
+        if translated { "(rosetta)" } else { "" }
+    ));
+    parts.push(format!(
+        "vm={}",
+        match sysctl_i32("kern.hv_vmm_present") {
+            Some(1) => "yes",
+            Some(_) => "no",
+            None => "?",
+        }
+    ));
+    parts.push(format!(
+        "icloud={}",
+        icloud_account_count().map_or("?".to_string(), |n| n.to_string())
+    ));
+
+    parts.join(" ")
+}
+
+/// What AOSKit's own call returns: "ok", "nil" or "missing" (dictionary without the OTP keys).
+fn aoskit_otp_status() -> &'static str {
+    let Some(utils) = Class::get("AOSUtilities") else {
+        return "no-aoskit";
+    };
+    objc::rc::autoreleasepool(|| unsafe {
+        let dsid = ns_string("-2");
+        let otp: *mut Object = msg_send![utils, retrieveOTPHeadersForDSID: dsid];
+        if otp.is_null() {
+            "nil"
+        } else if dict_string(otp, "X-Apple-MD").is_some() && dict_string(otp, "X-Apple-MD-M").is_some() {
+            "ok"
+        } else {
+            "missing"
+        }
+    })
+}
+
+/// Raw status code from the ADI routine AOSKit uses internally for the anonymous
+/// machine identity (DSID -2). 0 = ok; -45061 = this Mac has no such identity.
+/// The routine isn't exported, so it is looked up in AOSKit's symbol table.
+fn adi_otp_status() -> String {
+    type OtpFn = unsafe extern "C" fn(i64, *mut *mut u8, *mut u32, *mut *mut u8, *mut u32) -> i32;
+    type DisposeFn = unsafe extern "C" fn(*mut u8) -> i32;
+
+    let syms = match unsafe { aoskit_private_symbols(&["qi864985u0", "jk24uiwqrg"]) } {
+        Some(s) => s,
+        None => return "unavailable".into(),
+    };
+    let (Some(otp_addr), Some(dispose_addr)) = (syms[0], syms[1]) else {
+        return "unavailable".into();
+    };
+    unsafe {
+        let otp_fn: OtpFn = std::mem::transmute(otp_addr);
+        let dispose: DisposeFn = std::mem::transmute(dispose_addr);
+        let (mut mid, mut otp) = (std::ptr::null_mut(), std::ptr::null_mut());
+        let (mut mid_len, mut otp_len) = (0u32, 0u32);
+        let rc = otp_fn(-2, &mut mid, &mut mid_len, &mut otp, &mut otp_len);
+        if !mid.is_null() {
+            dispose(mid);
+        }
+        if !otp.is_null() {
+            dispose(otp);
+        }
+        rc.to_string()
+    }
+}
+
+#[repr(C)]
+struct MachHeader64 {
+    magic: u32,
+    cputype: i32,
+    cpusubtype: i32,
+    filetype: u32,
+    ncmds: u32,
+    sizeofcmds: u32,
+    flags: u32,
+    reserved: u32,
+}
+#[repr(C)]
+struct LoadCommand {
+    cmd: u32,
+    cmdsize: u32,
+}
+#[repr(C)]
+struct SegmentCommand64 {
+    cmd: u32,
+    cmdsize: u32,
+    segname: [u8; 16],
+    vmaddr: u64,
+    vmsize: u64,
+    fileoff: u64,
+    filesize: u64,
+    maxprot: i32,
+    initprot: i32,
+    nsects: u32,
+    flags: u32,
+}
+#[repr(C)]
+struct SymtabCommand {
+    cmd: u32,
+    cmdsize: u32,
+    symoff: u32,
+    nsyms: u32,
+    stroff: u32,
+    strsize: u32,
+}
+#[repr(C)]
+struct Nlist64 {
+    n_strx: u32,
+    n_type: u8,
+    n_sect: u8,
+    n_desc: u16,
+    n_value: u64,
+}
+
+/// Looks up non-exported functions in the loaded AOSKit image. Returns `None` if
+/// the image or its symbol table can't be read (e.g. symbols stripped on this macOS).
+unsafe fn aoskit_private_symbols(names: &[&str]) -> Option<Vec<Option<usize>>> {
+    const MH_MAGIC_64: u32 = 0xfeed_facf;
+    const LC_SEGMENT_64: u32 = 0x19;
+    const LC_SYMTAB: u32 = 0x2;
+    const N_STAB: u8 = 0xe0;
+    const N_TYPE: u8 = 0x0e;
+    const N_SECT: u8 = 0x0e;
+
+    let anchor = CString::new("kAOSMDMachineIdHeaderName").unwrap();
+    let sym = unsafe { libc::dlsym(libc::RTLD_DEFAULT, anchor.as_ptr()) };
+    if sym.is_null() {
+        return None;
+    }
+    let mut info: libc::Dl_info = unsafe { std::mem::zeroed() };
+    if unsafe { libc::dladdr(sym, &mut info) } == 0 || info.dli_fbase.is_null() {
+        return None;
+    }
+    let header = info.dli_fbase as *const MachHeader64;
+    if unsafe { (*header).magic } != MH_MAGIC_64 {
+        return None;
+    }
+
+    let mut cmd_ptr = unsafe { header.add(1) } as *const u8;
+    let (mut text_vm, mut linkedit_vm, mut linkedit_off) = (None, None, 0u64);
+    let mut symtab: Option<*const SymtabCommand> = None;
+    for _ in 0..unsafe { (*header).ncmds } {
+        let lc = cmd_ptr as *const LoadCommand;
+        let (cmd, size) = unsafe { ((*lc).cmd, (*lc).cmdsize) };
+        if size == 0 {
+            return None;
+        }
+        if cmd == LC_SEGMENT_64 {
+            let seg = cmd_ptr as *const SegmentCommand64;
+            let name = unsafe { &(*seg).segname };
+            if name.starts_with(b"__TEXT\0") {
+                text_vm = Some(unsafe { (*seg).vmaddr });
+            } else if name.starts_with(b"__LINKEDIT\0") {
+                linkedit_vm = Some(unsafe { (*seg).vmaddr });
+                linkedit_off = unsafe { (*seg).fileoff };
+            }
+        } else if cmd == LC_SYMTAB {
+            symtab = Some(cmd_ptr as *const SymtabCommand);
+        }
+        cmd_ptr = unsafe { cmd_ptr.add(size as usize) };
+    }
+    let (text_vm, linkedit_vm, symtab) = (text_vm?, linkedit_vm?, symtab?);
+    let slide = (header as usize).wrapping_sub(text_vm as usize);
+    let linkedit = (linkedit_vm as usize).wrapping_add(slide);
+    let (symoff, nsyms, stroff, strsize) =
+        unsafe { ((*symtab).symoff, (*symtab).nsyms, (*symtab).stroff, (*symtab).strsize) };
+    let nlist = linkedit.wrapping_add((symoff as u64).wrapping_sub(linkedit_off) as usize) as *const Nlist64;
+    let strings = linkedit.wrapping_add((stroff as u64).wrapping_sub(linkedit_off) as usize) as *const u8;
+
+    let mut found: Vec<Option<usize>> = vec![None; names.len()];
+    for i in 0..nsyms as usize {
+        let entry = unsafe { &*nlist.add(i) };
+        if entry.n_strx >= strsize || entry.n_type & N_STAB != 0 || entry.n_type & N_TYPE != N_SECT {
+            continue;
+        }
+        let name = unsafe { CStr::from_ptr(strings.add(entry.n_strx as usize) as *const c_char) };
+        let Some(name) = name.to_bytes().strip_prefix(b"_") else {
+            continue;
+        };
+        for (slot, wanted) in found.iter_mut().zip(names) {
+            if slot.is_none() && name == wanted.as_bytes() {
+                *slot = Some((entry.n_value as usize).wrapping_add(slide));
+            }
+        }
+        if found.iter().all(Option::is_some) {
+            break;
+        }
+    }
+    Some(found)
+}
+
+fn running_process_names() -> Option<Vec<String>> {
+    let out = std::process::Command::new("/bin/ps")
+        .args(["-axco", "comm="])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| l.trim().to_string())
+            .collect(),
+    )
+}
+
+fn sysctl_string(name: &str) -> Option<String> {
+    let c = CString::new(name).ok()?;
+    let mut len: libc::size_t = 0;
+    unsafe {
+        if libc::sysctlbyname(c.as_ptr(), std::ptr::null_mut(), &mut len, std::ptr::null_mut(), 0) != 0 || len == 0 {
+            return None;
+        }
+        let mut buf = vec![0u8; len];
+        if libc::sysctlbyname(c.as_ptr(), buf.as_mut_ptr() as *mut _, &mut len, std::ptr::null_mut(), 0) != 0 {
+            return None;
+        }
+        buf.truncate(len);
+        Some(String::from_utf8_lossy(&buf).trim_end_matches('\0').to_string())
+    }
+}
+
+fn sysctl_i32(name: &str) -> Option<i32> {
+    let c = CString::new(name).ok()?;
+    let mut value: i32 = 0;
+    let mut len = std::mem::size_of::<i32>();
+    let rc = unsafe {
+        libc::sysctlbyname(c.as_ptr(), &mut value as *mut i32 as *mut _, &mut len, std::ptr::null_mut(), 0)
+    };
+    (rc == 0).then_some(value)
+}
+
+/// Number of Apple Accounts signed in on this Mac (System Settings), without reading any of their details.
+fn icloud_account_count() -> Option<usize> {
+    let home = std::env::var("HOME").ok()?;
+    let path = std::path::Path::new(&home).join("Library/Preferences/MobileMeAccounts.plist");
+    if !path.exists() {
+        return Some(0);
+    }
+    let value = plist::Value::from_file(path).ok()?;
+    Some(
+        value
+            .as_dictionary()?
+            .get("Accounts")
+            .and_then(|a| a.as_array())
+            .map_or(0, |a| a.len()),
+    )
+}
