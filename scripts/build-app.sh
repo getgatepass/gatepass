@@ -2,6 +2,8 @@
 # Builds the Rust engine + SwiftUI app and assembles a self-contained GatePass.app.
 # Usage: scripts/build-app.sh            -> build/GatePass.app
 #        scripts/build-app.sh --dmg      -> also build/GatePass.dmg
+# By default both binaries are universal (Apple Silicon + Intel).
+# Set GATEPASS_ARCH=native for a quicker single-architecture dev build.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -9,19 +11,41 @@ OUT="$ROOT/build"
 APP="$OUT/GatePass.app"
 CARGO="${CARGO:-$HOME/.cargo/bin/cargo}"
 VERSION="$(grep -m1 '^version' "$ROOT/engine/Cargo.toml" | cut -d'"' -f2)"
+ARCH_MODE="${GATEPASS_ARCH:-universal}"
+export MACOSX_DEPLOYMENT_TARGET=14.0
 
-echo "▸ Building engine…"
-(cd "$ROOT/engine" && "$CARGO" build --release --quiet)
+ENGINE_BIN="$OUT/gatepass-engine"
+mkdir -p "$OUT"
+if [ "$ARCH_MODE" = "native" ]; then
+  echo "▸ Building engine (native)…"
+  (cd "$ROOT/engine" && "$CARGO" build --release --quiet)
+  cp "$ROOT/engine/target/release/gatepass-engine" "$ENGINE_BIN"
 
-echo "▸ Building app…"
-(cd "$ROOT/app" && swift build -c release --quiet)
-APP_BIN="$(cd "$ROOT/app" && swift build -c release --show-bin-path)/GatePass"
+  echo "▸ Building app (native)…"
+  (cd "$ROOT/app" && swift build -c release --quiet)
+  APP_BIN="$(cd "$ROOT/app" && swift build -c release --show-bin-path)/GatePass"
+else
+  RUSTUP="${RUSTUP:-$HOME/.cargo/bin/rustup}"
+  "$RUSTUP" target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null
+  for T in aarch64-apple-darwin x86_64-apple-darwin; do
+    echo "▸ Building engine ($T)…"
+    (cd "$ROOT/engine" && "$CARGO" build --release --quiet --target "$T")
+  done
+  lipo -create -output "$ENGINE_BIN" \
+    "$ROOT/engine/target/aarch64-apple-darwin/release/gatepass-engine" \
+    "$ROOT/engine/target/x86_64-apple-darwin/release/gatepass-engine"
+
+  echo "▸ Building app (arm64 + x86_64)…"
+  SWIFT_ARCHS=(--arch arm64 --arch x86_64)
+  (cd "$ROOT/app" && swift build -c release --quiet "${SWIFT_ARCHS[@]}")
+  APP_BIN="$(cd "$ROOT/app" && swift build -c release "${SWIFT_ARCHS[@]}" --show-bin-path)/GatePass"
+fi
 
 echo "▸ Assembling bundle…"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$APP_BIN" "$APP/Contents/MacOS/GatePass"
-cp "$ROOT/engine/target/release/gatepass-engine" "$APP/Contents/MacOS/gatepass-engine"
+cp "$ENGINE_BIN" "$APP/Contents/MacOS/gatepass-engine"
 if [ -f "$ROOT/assets/AppIcon.icns" ]; then
   cp "$ROOT/assets/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
