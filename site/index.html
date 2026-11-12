@@ -4,15 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GatePass — Sideload apps. Forget the 7‑day limit.</title>
-<meta name="description" content="GatePass is a free, open-source macOS sideloader. Drop an .ipa and it lands on your iPhone, iPad or Apple TV — then gets re-signed automatically before the 7-day limit runs out.">
+<meta name="description" content="GatePass is a free, open-source macOS sideloader. Drop an .ipa and it lands on your iPhone, iPad or Apple TV, then gets re-signed automatically before the 7-day limit runs out.">
 <meta name="theme-color" content="#050507">
 <meta property="og:title" content="GatePass — Sideload apps. Forget the 7‑day limit.">
-<meta property="og:description" content="Free, open-source sideloader for macOS. Drop an .ipa, it lands on your device — and stays there.">
+<meta property="og:description" content="Free, open-source sideloader for macOS. Drop an .ipa, it lands on your device and stays there.">
 <meta property="og:image" content="https://getgatepass.github.io/icon.png">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@1&family=Inter+Tight:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
@@ -23,15 +23,21 @@
   :root {
     color-scheme: dark;
     --bg: #050507;
-    --bg-2: #0c0c11;
+    --bg-2: #0b0b10;
     --text: #f5f5f7;
     --muted: #a3a3ad;
-    --line: rgba(255,255,255,.10);
-    --card: rgba(255,255,255,.04);
-    --accent: #ff6a2a;
-    --ink: #0a0a0c;
+    --dim: #71717c;
+    --line: rgba(255,255,255,.09);
+    --line-2: rgba(255,255,255,.16);
+    --card: rgba(255,255,255,.035);
+    --accent: #22cc8f;
+    --ink: #04110c;
     --display: "Inter Tight", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
     --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --ease: cubic-bezier(.2,.7,.2,1);
+    --ease-io: cubic-bezier(.76,0,.24,1);
+    --pad: clamp(16px, 4vw, 48px);
   }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; background: var(--bg); }
@@ -41,149 +47,330 @@
     overflow-x: hidden;
   }
   a { color: inherit; }
+  ::selection { background: var(--accent); color: var(--ink); }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
   code { font: 0.88em var(--mono); background: rgba(255,255,255,.07); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+  em.s { font: italic 400 1.1em/1 var(--serif); letter-spacing: -.02em; color: var(--accent); }
 
+  /* ---------- preloader ---------- */
+  .pre { display: none; }
+  .js .pre {
+    position: fixed; inset: 0; z-index: 100; background: var(--bg);
+    display: grid; place-items: center;
+    transition: transform 1s var(--ease-io), visibility 0s 1s;
+  }
+  .pre-in { display: flex; flex-direction: column; align-items: center; gap: 22px; transition: opacity .35s, transform .5s var(--ease); }
+  .pre img { width: 64px; height: 64px; animation: breathe 1.8s ease-in-out infinite; }
+  .pre-row { display: flex; align-items: center; gap: 14px; font: 600 12px var(--mono); letter-spacing: .16em; color: var(--dim); text-transform: uppercase; }
+  .pre-bar { width: 180px; height: 2px; background: rgba(255,255,255,.1); border-radius: 2px; overflow: hidden; }
+  .pre-bar span { display: block; height: 100%; width: 100%; transform-origin: 0 50%; transform: scaleX(0); background: var(--accent); }
+  .pre-n { min-width: 4ch; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+  .ready .pre { transform: translateY(-100%); visibility: hidden; }
+  .ready .pre-in { opacity: 0; transform: translateY(-30px); }
+
+  @keyframes breathe { 50% { transform: scale(1.06); filter: drop-shadow(0 0 26px color-mix(in srgb, var(--accent) 60%, transparent)); } }
   /* ---------- layers ---------- */
   #gl { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; transition: opacity .2s linear; }
-  /* soft light behind the laptop; positioned from JS (kept out of WebGL so it blends cleanly) */
   .glow3d {
     position: fixed; left: 0; top: 0; width: 110vmin; height: 80vmin; z-index: 0; pointer-events: none;
     margin: -40vmin 0 0 -55vmin; opacity: 0; will-change: transform, opacity;
     background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 34%, transparent) 0%, color-mix(in srgb, var(--accent) 14%, transparent) 45%, transparent 100%);
   }
-  .vignette { position: fixed; inset: 0; z-index: 1; pointer-events: none; background: radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(0,0,0,.55) 100%); }
-  .backword { position: absolute; top: 0; left: 0; right: 0; height: 100vh; min-height: 640px; z-index: 0; display: grid; place-items: center; overflow: hidden; pointer-events: none; }
+  .vignette { position: fixed; inset: 0; z-index: 1; pointer-events: none; background: radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(0,0,0,.6) 100%); }
+  .grain {
+    position: fixed; inset: 0; z-index: 40; pointer-events: none; opacity: .07; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .backword { position: absolute; top: 0; left: 0; right: 0; height: 100vh; height: 100svh; min-height: 640px; z-index: 0; display: grid; place-items: center; overflow: hidden; pointer-events: none; }
   .backword span {
     font-weight: 900; font-size: 22.5vw; letter-spacing: -.065em; line-height: 1; white-space: nowrap;
     background: linear-gradient(90deg, #1d1d24 0%, #34343f 46%, var(--accent) 54%, color-mix(in srgb, var(--accent) 45%, #fff) 100%);
     -webkit-background-clip: text; background-clip: text; color: transparent;
     transform: translateY(-2vh);
+    transition: opacity 1.4s var(--ease) .25s, transform 1.8s var(--ease) .25s;
   }
+  .js:not(.ready) .backword span { opacity: 0; transform: translateY(4vh) scale(1.08); }
   main { position: relative; z-index: 2; }
-  .progress { position: fixed; top: 0; left: 0; height: 2px; width: 100%; transform-origin: 0 50%; transform: scaleX(0); background: var(--accent); z-index: 20; }
+  .progress { position: fixed; top: 0; left: 0; height: 2px; width: 100%; transform-origin: 0 50%; transform: scaleX(0); background: var(--accent); z-index: 50; }
 
   /* ---------- nav ---------- */
   nav.top {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 30;
+    width: min(1240px, calc(100% - 24px));
     display: flex; align-items: center; justify-content: space-between;
-    padding: 14px clamp(16px, 4vw, 40px);
-    background: linear-gradient(to bottom, rgba(5,5,7,.85), rgba(5,5,7,0));
+    padding: 7px 8px 7px 16px; border-radius: 999px; border: 1px solid transparent;
+    transition: background .35s, border-color .35s, backdrop-filter .35s, width .5s var(--ease), opacity .8s var(--ease) .5s;
+  }
+  .js:not(.ready) nav.top { opacity: 0; }
+  .scrolled nav.top {
+    width: min(880px, calc(100% - 24px));
+    background: rgba(13,13,18,.6); border-color: var(--line);
+    -webkit-backdrop-filter: blur(20px) saturate(1.5); backdrop-filter: blur(20px) saturate(1.5);
+    box-shadow: 0 12px 40px -18px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.05);
   }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; text-decoration: none; letter-spacing: -.01em; min-height: 44px; }
   .brand img { width: 26px; height: 26px; }
-  nav .links { display: flex; align-items: center; gap: 26px; font-size: 14.5px; }
-  nav .links a { color: var(--muted); text-decoration: none; transition: color .2s; }
-  nav .links a:hover { color: var(--text); }
+  nav .links { display: flex; align-items: center; gap: 4px; font-size: 14.5px; }
+  nav .links a.l { color: var(--muted); text-decoration: none; padding: 10px 13px; border-radius: 999px; transition: color .2s, background .2s; }
+  nav .links a.l:hover { color: var(--text); background: rgba(255,255,255,.06); }
   .pill {
-    display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 16px; border-radius: 999px;
-    background: var(--accent); color: var(--ink) !important; font-weight: 650; text-decoration: none;
-    transition: transform .2s ease, filter .2s ease;
+    display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 18px; margin-left: 8px; border-radius: 999px;
+    background: var(--accent); color: var(--ink); font-weight: 650; text-decoration: none;
+    transition: filter .2s ease;
   }
-  .pill:hover { filter: brightness(1.08); transform: translateY(-1px); }
+  .pill:hover { filter: brightness(1.1); }
+
+  /* ---------- buttons ---------- */
+  .cta {
+    position: relative; display: inline-flex; align-items: center; gap: 10px; min-height: 56px; padding: 0 28px; border-radius: 999px;
+    background: var(--accent); color: var(--ink); font-weight: 700; font-size: 17px; text-decoration: none; overflow: hidden;
+    box-shadow: 0 10px 40px -10px var(--accent), inset 0 1px 0 rgba(255,255,255,.45);
+    transition: box-shadow .3s ease, filter .2s; will-change: transform;
+  }
+  .cta::after { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.55) 50%, transparent 65%); transform: translateX(-120%); }
+  .cta:hover { box-shadow: 0 18px 60px -10px var(--accent), inset 0 1px 0 rgba(255,255,255,.45); filter: brightness(1.05); }
+  .cta:hover::after { transform: translateX(120%); transition: transform .8s var(--ease); }
+  .cta svg { width: 18px; height: 18px; }
+  .ghost {
+    display: inline-flex; align-items: center; gap: 9px; min-height: 56px; padding: 0 22px; border-radius: 999px;
+    border: 1px solid var(--line-2); color: var(--text); font-weight: 600; font-size: 16px; text-decoration: none;
+    background: rgba(255,255,255,.03); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    transition: background .2s, border-color .2s;
+  }
+  .ghost:hover { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.3); }
+  .ghost svg { width: 18px; height: 18px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 10px; }
+  .meta { margin-top: 14px; font-size: 13px; color: var(--muted); font-family: var(--mono); letter-spacing: -.01em; }
+  .meta a { color: var(--muted); }
 
   /* ---------- hero ---------- */
-  .hero { position: relative; height: 100vh; min-height: 640px; }
+  .hero { position: relative; height: 100vh; height: 100svh; min-height: 640px; }
   .hero-foot {
     position: absolute; left: 0; right: 0; bottom: 0;
-    display: grid; grid-template-columns: 1.2fr 1fr; align-items: end; gap: 32px;
-    padding: 0 clamp(16px, 4vw, 40px) 44px;
+    display: grid; grid-template-columns: 1fr minmax(0, 420px); align-items: end; gap: 32px;
+    max-width: 1340px; margin: 0 auto; padding: 0 var(--pad) 84px;
   }
-  .hero h1 { margin: 0; font-size: clamp(38px, 5.2vw, 76px); line-height: .98; letter-spacing: -.04em; font-weight: 800; }
-  .hero h1 em { font-style: normal; color: var(--accent); }
-  .hero .right { justify-self: end; max-width: 400px; }
-  .hero .lead { color: var(--muted); margin: 0 0 20px; font-size: 17px; }
-  .cta {
-    display: inline-flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 26px; border-radius: 999px;
-    background: var(--accent); color: var(--ink); font-weight: 700; font-size: 17px; text-decoration: none;
-    box-shadow: 0 10px 40px -10px var(--accent);
-    transition: transform .2s ease, filter .2s ease, box-shadow .2s ease;
-  }
-  .cta:hover { transform: translateY(-2px); filter: brightness(1.07); box-shadow: 0 16px 50px -10px var(--accent); }
-  .cta svg { width: 18px; height: 18px; }
-  .meta { margin-top: 12px; font-size: 13.5px; color: var(--muted); font-family: var(--mono); letter-spacing: -.01em; }
-  .meta a { color: var(--muted); }
-  .scroll-hint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); font: 11px var(--mono); letter-spacing: .2em; color: #6d6d78; text-transform: uppercase; }
+  .hero h1 { margin: 0; font-size: clamp(40px, 5vw, 78px); line-height: .98; letter-spacing: -.04em; font-weight: 800; }
+  .hero h1 .ln { display: block; overflow: hidden; padding-bottom: .14em; margin-bottom: -.14em; }
+  .hero h1 .ln > span { display: block; transition: transform 1.1s var(--ease) .45s; }
+  .hero h1 .ln + .ln > span { transition-delay: .55s; }
+  .js:not(.ready) .hero h1 .ln > span { transform: translateY(110%); }
+  .hero .right { justify-self: end; max-width: 420px; }
+  .hero .lead { color: var(--muted); margin: 0 0 22px; font-size: 17.5px; }
+  .rv { transition: opacity .9s var(--ease) .75s, transform .9s var(--ease) .75s; }
+  .js:not(.ready) .rv { opacity: 0; transform: translateY(18px); }
+  .scroll-hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; font: 10.5px var(--mono); letter-spacing: .24em; color: var(--dim); text-transform: uppercase; }
+  .scroll-hint i { width: 1px; height: 26px; background: linear-gradient(var(--dim), transparent); transform-origin: 50% 0; animation: drip 2s var(--ease) infinite; }
+  @keyframes drip { 0% { transform: scaleY(0); } 60% { transform: scaleY(1); opacity: 1; } 100% { transform: scaleY(1); opacity: 0; } }
   .fallback-icon { display: none; }
-  .loader { position: absolute; left: 50%; top: 46%; width: 160px; height: 2px; transform: translateX(-50%); background: rgba(255,255,255,.1); border-radius: 2px; overflow: hidden; transition: opacity .5s; }
-  .loader span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
-  .loader.done, .no-webgl .loader { opacity: 0; }
   .no-webgl .fallback-icon { display: block; position: absolute; left: 50%; top: 42%; width: 180px; transform: translate(-50%, -50%); filter: drop-shadow(0 20px 50px rgba(0,0,0,.6)); }
+
+  /* ---------- scene rail ---------- */
+  .rail { position: fixed; right: 22px; top: 50%; transform: translateY(-50%); z-index: 20; display: flex; flex-direction: column; gap: 4px; opacity: 0; pointer-events: none; transition: opacity .4s; }
+  .rail-on .rail { opacity: 1; pointer-events: auto; }
+  .rail a { display: flex; align-items: center; justify-content: flex-end; gap: 10px; height: 26px; text-decoration: none; font: 600 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .rail a span { opacity: 0; transform: translateX(6px); transition: opacity .3s, transform .3s; }
+  .rail a i { width: 14px; height: 2px; border-radius: 2px; background: rgba(255,255,255,.22); transition: width .35s var(--ease), background .3s; }
+  .rail a:hover span, .rail a.on span { opacity: 1; transform: none; }
+  .rail a.on { color: var(--text); }
+  .rail a.on i { width: 30px; background: var(--accent); }
 
   /* ---------- story scenes ---------- */
   .scene { position: relative; height: 165vh; }
-  .scene .copy { position: sticky; top: 0; height: 100vh; display: flex; align-items: center; max-width: 1280px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 48px); }
-  .scene .inner { max-width: min(470px, 42vw); }
+  .scene .copy { position: sticky; top: 0; height: 100vh; display: flex; align-items: center; max-width: 1340px; margin: 0 auto; padding: 0 var(--pad); }
+  .scene .inner { max-width: min(480px, 42vw); }
   .scene[data-side="right"] .inner { margin-left: auto; }
-  .eyebrow { font: 600 12.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--accent); margin: 0 0 6px; }
   .big {
-    display: flex; align-items: baseline; gap: 14px;
+    display: flex; align-items: last baseline; gap: 14px;
     font-weight: 900; font-size: clamp(110px, 15vw, 230px); line-height: .82; letter-spacing: -.06em;
     font-variant-numeric: tabular-nums;
   }
   .big .n {
     display: inline-block;
-    /* background-clip:text only paints inside the box; pad it past the glyphs, then cancel the padding */
-    padding: 0.12em 0.08em 0.1em; margin: -0.12em -0.08em -0.1em;
-    background: linear-gradient(180deg, #fff 35%, var(--accent) 120%); -webkit-background-clip: text; background-clip: text; color: transparent;
+    color: #fff;
+    text-shadow: 0 0 1px rgba(255,255,255,.4), 0 0 40px color-mix(in srgb, var(--accent) 55%, transparent), 0 0 120px color-mix(in srgb, var(--accent) 35%, transparent);
   }
-  .big .u { font-size: clamp(18px, 1.8vw, 24px); font-weight: 700; letter-spacing: -.01em; color: var(--muted); }
-  .badge { display: inline-flex; align-items: center; gap: 6px; font: 600 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink); background: var(--accent); border-radius: 999px; padding: 4px 10px; opacity: 0; transform: translateY(6px); transition: opacity .3s, transform .3s; }
-  .renewed .badge { opacity: 1; transform: none; }
+  .big .u { font-size: clamp(18px, 1.8vw, 24px); font-weight: 700; letter-spacing: -.01em; color: var(--muted); line-height: 1.05; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; font: 600 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink); background: var(--accent); border-radius: 999px; padding: 4px 10px; }
   .js .reveal.in > .badge, .js .reveal > .badge { opacity: 0; transform: translateY(6px); transition: opacity .3s, transform .3s; }
   .js .reveal.in.renewed > .badge, .js .reveal.renewed > .badge { opacity: 1; transform: none; }
-  .scene h2 { margin: 14px 0 14px; font-size: clamp(34px, 4.2vw, 60px); line-height: 1; letter-spacing: -.035em; font-weight: 800; }
-  .scene p.body { margin: 0; color: var(--muted); font-size: 18px; max-width: 430px; }
+  .scene h2 { margin: 14px 0 14px; font-size: clamp(34px, 4.2vw, 62px); line-height: 1; letter-spacing: -.035em; font-weight: 800; text-wrap: balance; }
+  .scene p.body { margin: 0; color: var(--muted); font-size: 18px; max-width: 440px; }
 
-  .js .reveal > * { opacity: 0; transform: translateY(18px); transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); }
+  .js .reveal > * { opacity: 0; transform: translateY(22px); transition: opacity .8s var(--ease), transform .8s var(--ease); }
   .js .reveal.in > * { opacity: 1; transform: none; }
-  .js .reveal.in > *:nth-child(2) { transition-delay: .06s; }
-  .js .reveal.in > *:nth-child(3) { transition-delay: .12s; }
-  .js .reveal.in > *:nth-child(4) { transition-delay: .18s; }
+  .js .reveal.in > *:nth-child(2) { transition-delay: .07s; }
+  .js .reveal.in > *:nth-child(3) { transition-delay: .14s; }
+  .js .reveal.in > *:nth-child(4) { transition-delay: .21s; }
+  .js .reveal.in > *:nth-child(5) { transition-delay: .28s; }
+  .js .reveal.in > *:nth-child(6) { transition-delay: .35s; }
 
-  /* ---------- final ---------- */
-  .final { position: relative; padding: 18vh clamp(16px, 4vw, 48px) 0; background: linear-gradient(to bottom, rgba(5,5,7,0), var(--bg) 22vh); }
-  .final .wrap { max-width: 1120px; margin: 0 auto; }
-  .final h2 { font-size: clamp(40px, 6vw, 86px); letter-spacing: -.045em; line-height: .95; font-weight: 850; margin: 0 0 14px; }
-  .final .sub { color: var(--muted); font-size: 18px; max-width: 520px; margin: 0 0 48px; }
-  .limits { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); }
-  .limit { padding: 28px 24px 30px 0; border-right: 1px solid var(--line); }
-  .limit + .limit { padding-left: 24px; }
-  .limit:last-child { border-right: 0; }
-  .limit .v { font-weight: 900; font-size: clamp(64px, 8vw, 120px); letter-spacing: -.06em; line-height: .9; font-variant-numeric: tabular-nums; }
-  .limit .k { font: 600 12px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin-top: 12px; }
-  .limit p { margin: 6px 0 0; color: var(--muted); font-size: 15.5px; }
+  /* ---------- lower page ---------- */
+  .final { position: relative; padding: 18vh 0 clamp(90px, 14vh, 150px); background: linear-gradient(to bottom, rgba(5,5,7,0), var(--bg) 22vh, var(--bg) calc(100% - 40vh), rgba(5,5,7,0)); }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 0 var(--pad); }
+  .sec { margin-top: clamp(110px, 20vh, 200px); }
+  .sec-head { max-width: 720px; margin-bottom: 44px; }
+  .h2 { font-size: clamp(40px, 6vw, 88px); letter-spacing: -.045em; line-height: .95; font-weight: 850; margin: 0 0 16px; text-wrap: balance; }
+  .sub { color: var(--muted); font-size: 18.5px; max-width: 540px; margin: 0; }
 
-  .get { margin: 22vh 0 0; text-align: center; }
-  .get .icon { width: 112px; height: 112px; filter: drop-shadow(0 20px 50px color-mix(in srgb, var(--accent) 40%, transparent)); }
-  .get h2 { margin-top: 24px; }
-  .get .sub { margin: 0 auto 30px; }
+  .card {
+    position: relative; overflow: hidden; border-radius: 24px; border: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.015));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .card::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .4s;
+    background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 0%), color-mix(in srgb, var(--accent) 16%, transparent), transparent 62%);
+  }
+  .card:hover::before { opacity: 1; }
+  .card > * { position: relative; }
 
-  .note { max-width: 760px; margin: 18vh auto 0; border: 1px solid var(--line); background: var(--card); border-radius: 22px; padding: 26px 28px; }
-  .note h3 { margin: 0 0 6px; font-size: 20px; letter-spacing: -.02em; }
-  .note p { margin: 0; color: var(--muted); }
-  .note ol { margin: 14px 0 0; padding-left: 20px; color: var(--muted); }
-  .note li { margin: 6px 0; }
-  .note strong { color: var(--text); }
+  /* limits */
+  .limits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .limit { padding: 26px 26px 28px; }
+  .limit .k { font-weight: 650; font-size: 17px; letter-spacing: -.01em; color: var(--text); margin-top: 0; }
+  .limit .v { font-weight: 900; font-size: clamp(84px, 10vw, 150px); letter-spacing: -.06em; line-height: .95; margin: 6px 0 22px; font-variant-numeric: tabular-nums; }
+  .ticks { display: flex; gap: 5px; margin-bottom: 20px; }
+  .ticks i { flex: 1; height: 5px; border-radius: 3px; background: rgba(255,255,255,.12); transform-origin: 0 50%; }
+  .ticks i.f { background: var(--accent); }
+  .js .reveal .ticks i { transform: scaleX(0); transition: transform .6s var(--ease); transition-delay: calc(.35s + var(--i) * 55ms); }
+  .js .reveal.in .ticks i { transform: none; }
+  .limit p { margin: 4px 0 0; color: var(--muted); font-size: 15.5px; }
 
-  .faq { max-width: 760px; margin: 14vh auto 0; }
-  .faq h3 { font-size: 28px; letter-spacing: -.03em; margin: 0 0 18px; }
+
+  /* bento */
+  .bento { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; }
+  .b { padding: 28px; display: flex; flex-direction: column; min-height: 320px; }
+  .b h3 { margin: 0 0 6px; font-size: 23px; letter-spacing: -.025em; line-height: 1.15; }
+  .b p { margin: 0; color: var(--muted); font-size: 15.5px; max-width: 420px; }
+  .b .art { flex: 1; display: grid; place-items: center; margin-bottom: 24px; min-height: 150px; }
+  .b-4 { grid-column: span 4; } .b-2 { grid-column: span 2; } .b-6 { grid-column: span 6; }
+
+  .mb { width: 100%; max-width: 560px; align-self: start; }
+  .mb-bar { display: flex; align-items: center; justify-content: flex-end; gap: 16px; height: 34px; padding: 0 14px; border-radius: 12px 12px 0 0; background: rgba(0,0,0,.45); border: 1px solid var(--line); border-bottom: 0; font-size: 13px; color: rgba(255,255,255,.85); }
+  .mb-bar .l { margin-right: auto; display: flex; gap: 16px; } .mb-bar .l b { font-weight: 700; }
+  .mb-bar svg { width: 17px; height: 17px; }
+  .mb-bar .st { display: grid; place-items: center; width: 30px; height: 24px; border-radius: 6px; background: rgba(255,255,255,.16); color: #fff; }
+  .mb-bar .st svg { animation: spin 5s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .mb-desk { position: relative; height: 196px; border: 1px solid var(--line); border-radius: 0 0 12px 12px; overflow: hidden; background: radial-gradient(90% 120% at 15% 110%, rgba(16,185,129,.5), transparent 60%), radial-gradient(80% 120% at 95% -10%, rgba(8,145,179,.5), transparent 60%), #071012; }
+  .mb-pop { position: absolute; top: 8px; right: 74px; width: 250px; padding: 8px; border-radius: 12px; background: rgba(36,36,40,.86); border: 1px solid rgba(255,255,255,.14); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); box-shadow: 0 20px 50px rgba(0,0,0,.5); font-size: 13px; }
+  .mb-pop .hd { display: flex; align-items: center; gap: 8px; padding: 5px 8px 9px; color: rgba(235,235,245,.6); font-size: 12px; border-bottom: 1px solid rgba(255,255,255,.08); margin-bottom: 4px; }
+  .mb-pop .hd i { width: 7px; height: 7px; border-radius: 50%; background: #5bd47d; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; }
+  .row:nth-child(2) { background: rgba(255,255,255,.07); }
+  .tile { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: linear-gradient(135deg, #21cc8f, #0891b3); font-weight: 700; font-size: 13px; color: #fff; flex: none; }
+  .row b { font-weight: 600; flex: 1; }
+  .ring { width: 26px; height: 26px; flex: none; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 3; stroke-linecap: round; }
+  .ring .t { stroke: rgba(255,255,255,.12); } .ring .p { stroke: #5bd47d; }
+  .row small { font: 600 11px var(--mono); color: #5bd47d; width: 2.2ch; }
+
+  .toast { width: 100%; max-width: 330px; display: flex; gap: 12px; align-items: center; padding: 13px 14px; border-radius: 18px; background: rgba(44,44,48,.92); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 20px 50px rgba(0,0,0,.5); animation: bob 5s ease-in-out infinite; }
+  .toast img { width: 38px; height: 38px; border-radius: 9px; flex: none; }
+  .toast div { font-size: 13px; line-height: 1.35; color: rgba(255,255,255,.82); min-width: 0; }
+  .toast div b { display: flex; justify-content: space-between; color: #fff; } .toast div b span { font-weight: 400; color: rgba(235,235,245,.5); }
+  @keyframes bob { 50% { transform: translateY(-7px); } }
+
+  .fmt { display: flex; gap: 10px; }
+  .fmt span { font: 600 clamp(22px, 2.4vw, 30px) var(--mono); letter-spacing: -.03em; padding: 14px 18px; border-radius: 16px; border: 1px solid var(--line-2); background: rgba(255,255,255,.04); }
+  .fmt span:first-child { color: var(--ink); background: var(--accent); border-color: transparent; transform: rotate(-4deg); }
+  .fmt span:last-child { transform: rotate(3deg) translateY(8px); }
+
+  .stack { position: relative; width: 170px; height: 130px; }
+  .stack div { position: absolute; left: 0; right: 0; height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 13px; background: #1b1b20; border: 1px solid var(--line-2); font-size: 13px; font-weight: 600; box-shadow: 0 10px 30px rgba(0,0,0,.45); transition: transform .5s var(--ease); }
+  .stack div:nth-child(1) { top: 0; transform: scale(.86); opacity: .55; }
+  .stack div:nth-child(2) { top: 26px; transform: scale(.93); opacity: .8; }
+  .stack div:nth-child(3) { top: 56px; }
+  .card:hover .stack div:nth-child(1) { transform: translateY(-12px) scale(.9) rotate(-3deg); }
+  .card:hover .stack div:nth-child(2) { transform: translateY(-4px) scale(.95) rotate(2deg); }
+
+  .sw { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 14px; background: rgba(255,255,255,.05); border: 1px solid var(--line); font-size: 14px; width: 100%; max-width: 300px; }
+  .sw span { flex: 1; }
+  .sw i { position: relative; width: 40px; height: 24px; border-radius: 12px; background: rgba(255,255,255,.18); transition: background .35s; flex: none; }
+  .sw i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .35s var(--ease); }
+  .card:hover .sw i { background: #30d158; } .card:hover .sw i::after { transform: translateX(16px); }
+
+  .oss { flex-direction: row; align-items: center; justify-content: space-between; gap: 28px; min-height: 0; padding: 30px 32px; flex-wrap: wrap; }
+  .oss h3 { font-size: clamp(26px, 3vw, 38px); letter-spacing: -.035em; }
+
+  /* steps */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border-top: 1px solid var(--line); }
+  .step { position: relative; padding: 30px 28px 0 0; }
+  .step + .step { padding-left: 28px; border-left: 1px solid var(--line); }
+  .step h3 { margin: 0 0 8px; font-size: 26px; letter-spacing: -.03em; line-height: 1.1; }
+  .step p { margin: 0; color: var(--muted); font-size: 16px; }
+  .gk { margin-top: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); padding: 0 16px; font-size: 14.5px; }
+  .gk summary { min-height: 48px; font-size: 14.5px; font-weight: 600; }
+  .gk ol { margin: 0 0 16px; padding-left: 18px; color: var(--muted); }
+  .gk li { margin: 5px 0; } .gk strong { color: var(--text); }
+
+  /* faq */
+  .faq { display: grid; grid-template-columns: 1fr 1.5fr; gap: 48px; align-items: start; }
+  .faq .sec-head { position: sticky; top: 110px; margin: 0; }
   details { border-top: 1px solid var(--line); }
-  details:last-child { border-bottom: 1px solid var(--line); }
-  summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 60px; font-weight: 650; font-size: 17.5px; }
+  .qa details:last-child { border-bottom: 1px solid var(--line); }
+  summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 72px; font-weight: 650; font-size: 19px; letter-spacing: -.015em; transition: color .2s; }
+  summary:hover { color: var(--accent); }
   summary::-webkit-details-marker { display: none; }
-  summary::after { content: ""; width: 10px; height: 10px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); transition: transform .25s ease; flex: none; margin-right: 4px; }
-  details[open] summary::after { transform: rotate(-135deg); }
-  details p { margin: 0 0 20px; color: var(--muted); max-width: 640px; }
+  summary::after { content: ""; flex: none; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line-2); background: linear-gradient(currentColor, currentColor) center / 11px 1.5px no-repeat, linear-gradient(currentColor, currentColor) center / 1.5px 11px no-repeat; transition: transform .35s var(--ease); }
+  details[open] > summary::after { transform: rotate(45deg); }
+  .gk summary::after { width: 22px; height: 22px; background-size: 9px 1.5px, 1.5px 9px; }
+  details > p, details > ol { animation: open .45s var(--ease); }
+  details > p { margin: 0 0 24px; color: var(--muted); max-width: 620px; }
+  @keyframes open { from { opacity: 0; transform: translateY(-8px); } }
 
-  footer { margin-top: 16vh; border-top: 1px solid var(--line); padding: 28px clamp(16px, 4vw, 48px) 40px; color: #7c7c87; font-size: 14px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-  footer a { color: #9a9aa5; }
+  /* final cta */
+  /* outro: the laptop comes back under a spotlight and opens onto the download button */
+  .outro { position: relative; padding: 16vh var(--pad); }
+  .outro-pin { display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .outro-fb img { width: 96px; height: 96px; }
+  .outro-fb .h2 { margin: 22px 0 26px; }
+  .outro-meta { margin: 28px 0 0; font: 13px/1.9 var(--mono); letter-spacing: -.01em; color: var(--muted); }
+  .outro-meta a { color: var(--muted); text-underline-offset: 3px; }
+  .outro-meta a:hover { color: var(--text); }
+  .beam, .outro-hit, .outro-cta { display: none; }
+  .gl .outro { height: 175vh; padding: 0; overflow-x: clip; }
+  .gl .outro-pin { position: sticky; top: 0; height: 100vh; height: 100svh; justify-content: flex-end; padding: 0 var(--pad) 5vh; }
+  .gl .outro-fb { display: none; }
+  .gl .outro-meta { opacity: 0; transform: translateY(12px); transition: opacity .7s var(--ease), transform .7s var(--ease); }
+  .gl .outro.open .outro-meta { opacity: 1; transform: none; }
+  .gl .beam { display: block; position: absolute; left: 50%; top: -6vh; width: min(110vh, 150vw); height: 80vh; margin-left: calc(min(110vh, 150vw) / -2); pointer-events: none; opacity: 0; filter: blur(46px);
+    -webkit-mask-image: linear-gradient(180deg, transparent, #000 30%); mask-image: linear-gradient(180deg, transparent, #000 30%); }
+  .gl .beam::before { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.025) 65%, transparent); clip-path: polygon(46% 0, 54% 0, 90% 100%, 10% 100%); }
+  .gl .outro-hit {
+    display: block; position: fixed; left: 0; top: 0; z-index: 6; border-radius: 12px; overflow: hidden;
+    color: transparent; text-decoration: none; cursor: pointer; visibility: hidden; -webkit-tap-highlight-color: transparent;
+  }
+  .gl .outro.open .outro-hit { visibility: visible; }
 
+  footer { position: relative; background: var(--bg); border-top: 1px solid var(--line); overflow: hidden; }
+  .foot { display: flex; justify-content: space-between; gap: 32px; flex-wrap: wrap; padding-top: 36px; padding-bottom: 8px; color: var(--dim); font-size: 14px; }
+  .foot .about { max-width: 440px; }
+  .foot .about .brand { color: var(--text); margin-bottom: 6px; }
+  .foot nav { display: flex; gap: 56px; }
+  .foot nav div { display: flex; flex-direction: column; gap: 9px; }
+  .foot nav b { font: 600 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }
+  .foot a { color: var(--muted); text-decoration: none; transition: color .2s; }
+  .foot a:hover { color: var(--text); }
+  .foot .about a { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-2); }
+
+  @media (min-width: 1100px) { .hero h1 .ln { white-space: nowrap; } }
+  .wordmark { margin: 30px 0 -0.19em; text-align: center; font-weight: 900; font-size: 19.6vw; letter-spacing: -.065em; line-height: 1; white-space: nowrap; user-select: none; color: #1c1c23;
+    -webkit-mask-image: linear-gradient(180deg, #000 10%, transparent 92%); mask-image: linear-gradient(180deg, #000 10%, transparent 92%); }
   /* ---------- responsive ---------- */
+  @media (max-width: 980px) {
+    .bento { grid-template-columns: repeat(2, 1fr); }
+    .b-4, .b-6 { grid-column: span 2; } .b-2 { grid-column: span 1; }
+    .faq { grid-template-columns: 1fr; gap: 28px; } .faq .sec-head { position: static; }
+  }
   @media (max-width: 820px) {
-    nav .links .hide-sm { display: none; }
+    nav .links a.l, .rail { display: none; }
     .backword span { font-size: 23vw; transform: translateY(-16vh); }
-    .hero-foot { grid-template-columns: 1fr; gap: 18px; padding-bottom: 54px; }
+    .hero-foot { grid-template-columns: 1fr; gap: 18px; padding-bottom: 30px; }
+    .scroll-hint { display: none; }
+    .hero .ghost { display: none; }
+    .backword span { transform: translateY(-24vh); }
     .hero .right { justify-self: start; }
     .scene { height: 150vh; }
     .scene .copy { align-items: flex-end; padding-bottom: 7vh; }
@@ -191,18 +378,39 @@
     .big { font-size: 104px; }
     .scene h2 { font-size: 34px; }
     .scene p.body { font-size: 16.5px; }
-    .limits { grid-template-columns: 1fr; }
-    .limit, .limit + .limit { padding: 22px 0; border-right: 0; border-bottom: 1px solid var(--line); }
+    .limits, .steps { grid-template-columns: 1fr; }
+    .step, .step + .step { padding: 26px 0 30px; border-left: 0; border-bottom: 1px solid var(--line); }
+    .step h3 { margin-top: 18px; }
+    .bento { grid-template-columns: 1fr; }
+    .b-2, .b-4, .b-6 { grid-column: span 1; }
+    .b { min-height: 0; padding: 22px; }
+    .mb-pop { right: 12px; }
+    .mb-bar .l span { display: none; }
+    /* the button drawn on the laptop screen is too small to tap, so phones get a real one */
+    .gl .outro-cta { display: inline-flex; opacity: 0; transform: translateY(12px); transition: opacity .7s var(--ease), transform .7s var(--ease); }
+    .gl .outro.open .outro-cta { opacity: 1; transform: none; }
+    .gl .outro-meta { margin-top: 18px; }
+    .gl .outro-hit { display: none; }
+    .foot nav { gap: 40px; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .js .reveal > * { opacity: 1; transform: none; transition: none; }
-    .cta, .pill, .badge { transition: none; }
+    .js .reveal > *, .js .reveal .ticks i { opacity: 1; transform: none; transition: none; }
+    *, *::before, *::after { animation: none !important; }
+    .cta, .pill, .badge, .pre, .rv, .hero h1 .ln > span, .backword span { transition: none; }
   }
 </style>
 </head>
 <body>
 <script>document.documentElement.classList.add('js');</script>
+
+<div class="pre" aria-hidden="true">
+  <div class="pre-in">
+    <img src="icon.png" alt="">
+    <div class="pre-row"><div class="pre-bar"><span></span></div><span class="pre-n">0%</span></div>
+  </div>
+</div>
 <div class="progress" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
 
 <div class="backword" aria-hidden="true"><span>GATEPASS</span></div>
 <div class="glow3d" aria-hidden="true"></div>
@@ -212,125 +420,229 @@
 <nav class="top" aria-label="Main">
   <a class="brand" href="#top"><img src="favicon.png" alt="">GatePass</a>
   <div class="links">
-    <a class="hide-sm" href="#how">How it works</a>
-    <a class="hide-sm" href="#faq">FAQ</a>
-    <a class="hide-sm" href="https://github.com/getgatepass/gatepass">GitHub</a>
+    <a class="l" href="#how">How it works</a>
+    <a class="l" href="#features">Features</a>
+    <a class="l" href="#faq">FAQ</a>
+    <a class="l" href="https://github.com/getgatepass/gatepass">GitHub</a>
     <a class="pill" href="https://github.com/getgatepass/gatepass/releases/latest/download/GatePass.dmg">Download</a>
   </div>
 </nav>
 
+<aside class="rail" aria-label="Story">
+  <a href="#how"><span>Drop</span><i></i></a>
+  <a href="#refresh"><span>Auto-refresh</span><i></i></a>
+  <a href="#devices"><span>Devices</span><i></i></a>
+  <a href="#apps"><span>My apps</span><i></i></a>
+  <a href="#privacy"><span>Privacy</span><i></i></a>
+</aside>
+
 <main id="top">
   <section class="hero" data-scene>
     <img class="fallback-icon" src="icon.png" alt="GatePass app icon">
-    <div class="loader" aria-hidden="true"><span></span></div>
     <div class="hero-foot">
-      <h1>Sideload apps.<br><em>Forget</em> the 7‑day limit.</h1>
-      <div class="right">
+      <div>
+        <h1><span class="ln"><span>Sideload apps.</span></span><span class="ln"><span><em class="s">Forget</em> the 7‑day limit.</span></span></h1>
+      </div>
+      <div class="right rv">
         <p class="lead">GatePass is a Mac app. Drop an <code>.ipa</code> onto it and it lands on your iPhone, iPad or Apple TV, then gets re-signed before it expires.</p>
-        <a class="cta" href="https://github.com/getgatepass/gatepass/releases/latest/download/GatePass.dmg">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
-          Download for Mac
-        </a>
-        <div class="meta">Free · Open source · macOS 14+</div>
+        <div class="btns">
+          <a class="cta" data-magnetic href="https://github.com/getgatepass/gatepass/releases/latest/download/GatePass.dmg">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+            Download for Mac
+          </a>
+          <a class="ghost" href="https://github.com/getgatepass/gatepass">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.600-4-1.600-.5-1.400-1.300-1.800-1.300-1.800-1.100-.7.1-.7.1-.7 1.200.1 1.800 1.200 1.800 1.200 1.100 1.800 2.800 1.300 3.500 1 .1-.8.4-1.300.8-1.600-2.700-.3-5.500-1.300-5.500-5.900 0-1.300.5-2.400 1.200-3.200-.1-.3-.5-1.500.1-3.200 0 0 1-.3 3.300 1.200a11.500 11.500 0 0 1 6 0c2.300-1.500 3.300-1.200 3.300-1.200.7 1.700.2 2.900.1 3.200.8.8 1.200 1.900 1.200 3.200 0 4.600-2.800 5.600-5.500 5.900.4.400.8 1.100.8 2.200v3.300c0 .3.2.7.8.6A12 12 0 0 0 12 .5Z"/></svg>
+            View source
+          </a>
+        </div>
+        <div class="meta">Free · MIT · macOS 14+ · no account with us</div>
       </div>
     </div>
-    <div class="scroll-hint" aria-hidden="true">Scroll</div>
+    <div class="scroll-hint" aria-hidden="true">Scroll<i></i></div>
   </section>
 
   <section class="scene" id="how" data-scene data-side="left">
     <div class="copy"><div class="inner reveal">
-      <p class="eyebrow">01 — Drop</p>
       <div class="big"><span class="n" data-count data-from="12" data-to="0">0</span><span class="u">Xcode<br>projects</span></div>
-      <h2>Drop it on your Mac.<br>It's on your iPhone.</h2>
+      <h2>Drop it on your Mac.<br>It's on your <em class="s">iPhone.</em></h2>
       <p class="body">Drag an <code>.ipa</code> or <code>.tipa</code> onto GatePass, or pick one from your recent files. It signs with your own Apple ID and installs. That's the whole workflow.</p>
     </div></div>
   </section>
 
-  <section class="scene" data-scene data-side="right">
+  <section class="scene" id="refresh" data-scene data-side="right">
     <div class="copy"><div class="inner reveal">
-      <p class="eyebrow">02 — Auto-refresh</p>
       <div class="big"><span class="n" data-days>7</span><span class="u">days<br>left</span></div>
       <span class="badge"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Renewed</span>
-      <h2>Then it<br>renews itself.</h2>
+      <h2>Then it<br><em class="s">renews</em> itself.</h2>
       <p class="body">Free Apple IDs sign apps for 7 days. GatePass waits in your Mac's menu bar, and whenever your device shows up with apps due, it re-signs them and sends you a notification.</p>
     </div></div>
   </section>
 
-  <section class="scene" data-scene data-side="left">
+  <section class="scene" id="devices" data-scene data-side="left">
     <div class="copy"><div class="inner reveal">
-      <p class="eyebrow">03 — Devices</p>
       <div class="big"><span class="n" data-count data-from="0" data-to="3">3</span><span class="u">kinds of<br>device</span></div>
-      <h2>USB or Wi‑Fi.<br>Your call.</h2>
+      <h2>USB or Wi‑Fi.<br><em class="s">Your</em> call.</h2>
       <p class="body">iPhone, iPad and Apple TV. Plug in once, and after that GatePass can reach them over your local network.</p>
     </div></div>
   </section>
 
-  <section class="scene" data-scene data-side="right">
+  <section class="scene" id="apps" data-scene data-side="right">
     <div class="copy"><div class="inner reveal">
-      <p class="eyebrow">04 — My apps</p>
       <div class="big"><span class="n" data-count data-from="9" data-to="1">1</span><span class="u">click to<br>refresh</span></div>
-      <h2>Every app,<br>at a glance.</h2>
+      <h2>Every app,<br>at a <em class="s">glance.</em></h2>
       <p class="body">My Apps shows everything you've installed with a days-left ring, right next to your recent IPAs and a folder you can browse.</p>
     </div></div>
   </section>
 
-  <section class="scene" data-scene data-side="left">
+  <section class="scene" id="privacy" data-scene data-side="left">
     <div class="copy"><div class="inner reveal">
-      <p class="eyebrow">05 — Privacy</p>
       <div class="big"><span class="n" data-count data-from="9" data-to="0">0</span><span class="u">servers<br>of ours</span></div>
-      <h2>Your password goes to Apple. Only Apple.</h2>
+      <h2>Your password goes to Apple. <em class="s">Only</em> Apple.</h2>
       <p class="body">Device data is generated locally by your Mac, so Apple sees your real Mac. Your session stays in a file only your user account can read, or in Keychain if you prefer. No account with us, no tracking.</p>
     </div></div>
   </section>
 
   <section class="final" data-scene>
     <div class="wrap">
-      <div class="reveal">
-        <p class="eyebrow">The fine print</p>
-        <h2>Know the limits.</h2>
+      <div class="sec-head reveal">
+        <h2 class="h2">Know the <em class="s">limits.</em></h2>
         <p class="sub">Apple sets these for free Apple IDs. GatePass works inside them and does the renewing for you.</p>
       </div>
-      <div class="limits">
-        <div class="limit"><div class="v">7</div><div class="k">Days per signature</div><p>Apps expire after a week unless re-signed. Auto-refresh handles it.</p></div>
-        <div class="limit"><div class="v">3</div><div class="k">Active apps</div><p>At most three sideloaded apps on a device at the same time.</p></div>
-        <div class="limit"><div class="v">10</div><div class="k">App IDs a week</div><p>New App IDs you can register in a rolling seven days.</p></div>
-      </div>
-
-      <div class="get reveal">
-        <img class="icon" src="icon.png" alt="GatePass app icon" width="112" height="112">
-        <h2>Get GatePass.</h2>
-        <p class="sub">One download. Free, open source, no account with us.</p>
-        <a class="cta" href="https://github.com/getgatepass/gatepass/releases/latest/download/GatePass.dmg">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
-          Download for Mac
-        </a>
-        <div class="meta">macOS 14 Sonoma or later · <a href="https://github.com/getgatepass/gatepass/releases">All releases</a> · <a href="https://github.com/getgatepass/gatepass">Source</a></div>
-      </div>
-
-      <div class="note">
-        <h3>First launch: "GatePass can't be opened"?</h3>
-        <p>GatePass isn't notarized by Apple yet, so macOS asks you to confirm once.</p>
-        <ol>
-          <li>Open GatePass once, then close the warning.</li>
-          <li>Go to <strong>System Settings → Privacy &amp; Security</strong>.</li>
-          <li>Scroll down and click <strong>Open Anyway</strong> next to GatePass.</li>
-        </ol>
-      </div>
-
-      <div class="faq" id="faq">
-        <h3>FAQ</h3>
-        <details><summary>Is it really free?</summary><p>Yes. GatePass is free and open source under the MIT license, and it works with a free Apple ID. There's no account with us and no subscription.</p></details>
-        <details><summary>Does my device need to be connected for auto-refresh?</summary><p>It needs to be reachable, over USB or on the same Wi‑Fi as your Mac, with GatePass running in the menu bar. Renewal happens whenever the device shows up.</p></details>
-        <details><summary>Is my Apple ID safe?</summary><p>Your password is only sent to Apple. Login uses the same private Apple APIs every sideloader uses. If you prefer, sign in with a secondary Apple ID.</p></details>
-        <details><summary>Where do I get .ipa files?</summary><p>From apps you build yourself or apps you have the right to install, such as open-source projects that publish IPAs.</p></details>
+      <div class="limits reveal">
+        <div class="card limit"><div class="v">7</div><div class="ticks" data-ticks="7"></div><div class="k">Days per signature</div><p>Apps expire after a week unless re-signed. Auto-refresh handles it.</p></div>
+        <div class="card limit"><div class="v">3</div><div class="ticks" data-ticks="3"></div><div class="k">Active apps</div><p>At most three sideloaded apps on a device at the same time.</p></div>
+        <div class="card limit"><div class="v">10</div><div class="ticks" data-ticks="10"></div><div class="k">App IDs a week</div><p>New App IDs you can register in a rolling seven days.</p></div>
       </div>
     </div>
 
-    <footer>
-      <span>GatePass · MIT License · Built on <a href="https://github.com/claration/Impactor">Impactor</a> · 3D model "<a href="https://skfb.ly/pPRAW" target="_blank" rel="noopener">MacBook Pro PROLED XDR</a>" by Ranguel, <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a> (textures resized, screen content replaced)</span>
-      <span><a href="https://github.com/getgatepass/gatepass">Source</a> · <a href="https://github.com/getgatepass/gatepass/issues">Report an issue</a> · Site by <a href="https://nodenstudio.com" target="_blank" rel="noopener">nodenstudio.com</a></span>
-    </footer>
+    <div class="wrap">
+      <section class="sec" id="features">
+        <div class="sec-head reveal">
+          <h2 class="h2">Small app.<br><em class="s">Nothing</em> missing.</h2>
+        </div>
+        <div class="bento reveal">
+          <div class="card b b-4">
+            <div class="art"><div class="mb" aria-hidden="true">
+              <div class="mb-bar">
+                <span class="l"><b>GatePass</b><span>File</span><span>Edit</span><span>Window</span></span>
+                <span class="st"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-14 5.300M4 12a8 8 0 0 1 14-5.300"/><path d="M18 3v4h-4M6 21v-4h4"/></svg></span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M2.500 9.500a14 14 0 0 1 19 0M5.500 13a9.500 9.500 0 0 1 13 0M8.800 16.300a5 5 0 0 1 6.400 0"/><circle cx="12" cy="19.500" r="1" fill="currentColor"/></svg>
+                <span>Tue 9:41</span>
+              </div>
+              <div class="mb-desk"><div class="mb-pop">
+                <div class="hd"><i></i>Auto-refresh is on</div>
+                <div class="row"><span class="tile">F</span><b>Field Notes</b><svg class="ring" viewBox="0 0 26 26"><circle class="t" cx="13" cy="13" r="10"/><circle class="p" cx="13" cy="13" r="10" pathLength="7" stroke-dasharray="6 7"/></svg><small>6d</small></div>
+                <div class="row"><span class="tile">P</span><b>Pocket Code</b><svg class="ring" viewBox="0 0 26 26"><circle class="t" cx="13" cy="13" r="10"/><circle class="p" cx="13" cy="13" r="10" pathLength="7" stroke-dasharray="4 7"/></svg><small>4d</small></div>
+                <div class="row"><span class="tile">R</span><b>Retro Arcade</b><svg class="ring" viewBox="0 0 26 26"><circle class="t" cx="13" cy="13" r="10"/><circle class="p" cx="13" cy="13" r="10" pathLength="7" stroke-dasharray="7 7"/></svg><small>7d</small></div>
+              </div></div>
+            </div></div>
+            <h3>Lives in your menu bar.</h3>
+            <p>Close the window and GatePass keeps going. When a device shows up over USB or Wi‑Fi, apps that expire within 2 days get refreshed.</p>
+          </div>
+          <div class="card b b-2">
+            <div class="art"><div class="toast" aria-hidden="true"><img src="icon.png" alt=""><div><b>GatePass <span>now</span></b>Renewed 3 apps on iPhone · next in 7 days</div></div></div>
+            <h3>Tells you when it's done.</h3>
+            <p>A notification after every renewal. Or switch them off.</p>
+          </div>
+          <div class="card b b-2">
+            <div class="art"><div class="fmt" aria-hidden="true"><span>.ipa</span><span>.tipa</span></div></div>
+            <h3>Both formats.</h3>
+            <p>Drag one in, or pick from Recent and your own IPA folder.</p>
+          </div>
+          <div class="card b b-2">
+            <div class="art"><div class="stack" aria-hidden="true"><div><span class="tile">F</span>FieldNotes.ipa</div><div><span class="tile">P</span>PocketCode.ipa</div><div><span class="tile">R</span>RetroArcade.ipa</div></div></div>
+            <h3>Several at once.</h3>
+            <p>Drop a handful of files together. They install one after another.</p>
+          </div>
+          <div class="card b b-2">
+            <div class="art"><div class="sw" aria-hidden="true"><span>Store sign-in in Keychain</span><i></i></div></div>
+            <h3>Keychain if you want it.</h3>
+            <p>Your session sits in a user-only file by default. Your Apple ID password is never saved either way.</p>
+          </div>
+          <div class="card b b-6 oss">
+            <div>
+              <h3>Read every line.</h3>
+              <p>A SwiftUI app on top of a Rust engine, built on Impactor. MIT licensed.</p>
+            </div>
+            <a class="ghost" href="https://github.com/getgatepass/gatepass">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 6-6 6 6 6M16 6l6 6-6 6"/></svg>
+              Browse the source
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head reveal">
+          <h2 class="h2">Three steps.<br>About a <em class="s">minute.</em></h2>
+        </div>
+        <div class="steps reveal">
+          <div class="step">
+            <h3>Download and open</h3>
+            <p>Grab the disk image and drag GatePass into Applications.</p>
+            <details class="gk">
+              <summary>"GatePass can't be opened"?</summary>
+              <ol>
+                <li>GatePass isn't notarized by Apple yet, so macOS asks you to confirm once. Open it, then close the warning.</li>
+                <li>Go to <strong>System Settings → Privacy &amp; Security</strong>.</li>
+                <li>Scroll down and click <strong>Open Anyway</strong> next to GatePass.</li>
+              </ol>
+            </details>
+          </div>
+          <div class="step">
+            <h3>Sign in once</h3>
+            <p>Use your own Apple ID. A free one works, and a secondary one is fine if you'd rather keep things separate.</p>
+          </div>
+          <div class="step">
+            <h3>Drop an .ipa</h3>
+            <p>Plug in your device, drop the file, and it installs. From then on GatePass renews it for you.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec faq" id="faq">
+        <div class="sec-head reveal">
+          <h2 class="h2">Fair <em class="s">questions.</em></h2>
+          <p class="sub">Something else? <a href="https://github.com/getgatepass/gatepass/issues">Open an issue</a> on GitHub.</p>
+        </div>
+        <div class="qa reveal">
+          <details open><summary>Is it really free?</summary><p>Yes. GatePass is free and open source under the MIT license, and it works with a free Apple ID. There's no account with us and no subscription.</p></details>
+          <details><summary>Does my device need to be connected for auto-refresh?</summary><p>It needs to be reachable, over USB or on the same Wi‑Fi as your Mac, with GatePass running in the menu bar. Renewal happens whenever the device shows up.</p></details>
+          <details><summary>Is my Apple ID safe?</summary><p>Your password is only sent to Apple. Login uses the same private Apple APIs every sideloader uses. If you prefer, sign in with a secondary Apple ID.</p></details>
+          <details><summary>Where do I get .ipa files?</summary><p>From apps you build yourself or apps you have the right to install, such as open-source projects that publish IPAs.</p></details>
+        </div>
+      </section>
+
+    </div>
   </section>
+
+  <section class="outro" id="get" aria-label="Download GatePass">
+    <div class="outro-pin">
+      <div class="beam" aria-hidden="true"></div>
+      <div class="outro-fb">
+        <img src="icon.png" alt="GatePass app icon" width="96" height="96">
+        <h2 class="h2">Get GatePass.</h2>
+        <a class="cta" href="https://github.com/getgatepass/gatepass/releases/latest/download/GatePass.dmg">Download for Mac</a>
+      </div>
+      <a class="cta outro-cta" href="https://github.com/getgatepass/gatepass/releases/latest/download/GatePass.dmg">Download for Mac</a>
+      <p class="outro-meta">One universal download for Apple silicon and Intel · macOS 14 or later<br><a href="https://github.com/getgatepass/gatepass/releases">All releases</a> · <a href="https://github.com/getgatepass/gatepass">Source</a></p>
+    </div>
+    <a class="outro-hit" href="https://github.com/getgatepass/gatepass/releases/latest/download/GatePass.dmg">Get GatePass for Mac</a>
+  </section>
+
+  <footer>
+      <div class="wrap foot">
+        <div class="about">
+          <a class="brand" href="#top"><img src="favicon.png" alt="">GatePass</a>
+          <p>MIT License · Built on <a href="https://github.com/claration/Impactor">Impactor</a>. 3D model "<a href="https://skfb.ly/pPRAW" target="_blank" rel="noopener">MacBook Pro PROLED XDR</a>" by Ranguel, <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a> (textures resized, screen content replaced).</p>
+        </div>
+        <nav aria-label="Footer">
+          <div><b>Product</b><a href="#how">How it works</a><a href="#features">Features</a><a href="#faq">FAQ</a><a href="https://github.com/getgatepass/gatepass/releases">Releases</a></div>
+          <div><b>Project</b><a href="https://github.com/getgatepass/gatepass">Source</a><a href="https://github.com/getgatepass/gatepass/issues">Report an issue</a><a href="https://nodenstudio.com" target="_blank" rel="noopener">Site by nodenstudio.com</a></div>
+        </nav>
+      </div>
+      <div class="wordmark" aria-hidden="true">GATEPASS</div>
+    </footer>
 </main>
 
 <script type="module" src="app.js"></script>

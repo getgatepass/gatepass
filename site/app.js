@@ -34,7 +34,7 @@ function scrollState() {
 }
 
 /* ---------- reveal + counters ---------- */
-const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) e.target.classList.add('in'); }), { threshold: 0.25 });
+const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) e.target.classList.add('in'); }), { threshold: 0.15 });
 document.querySelectorAll('.reveal').forEach(el => (reduce ? el.classList.add('in') : io.observe(el)));
 const counters = [...document.querySelectorAll('[data-count]')].map(el => ({ el, k: scenes.indexOf(el.closest('[data-scene]')), from: +el.dataset.from, to: +el.dataset.to, last: null }));
 const daysEl = document.querySelector('[data-days]');
@@ -298,7 +298,39 @@ const DEVS = [
   { kind: 'tv', name: 'Living Room', sub: 'tvOS 26 · Wi‑Fi' },
 ];
 
-function drawScreen(mode, p, acc, time) {
+/* outro screen: a small macOS window whose one job is the download button */
+const GET = { x: 348, y: 176, s: 2.6, bx: 110, by: 262, bw: 300, bh: 54 };
+const GET_BTN = { x: GET.x + GET.bx * GET.s, y: GET.y + GET.by * GET.s, w: GET.bw * GET.s, h: GET.bh * GET.s };   // desktop space
+function drawGet(p, hover) {
+  const a = smooth(clamp((p - 0.3) / 0.3));
+  if (a <= 0) return;
+  g.save(); g.globalAlpha = a;
+  g.translate(GET.x, GET.y + (1 - a) * 36); g.scale(GET.s, GET.s);
+  g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = 50; g.shadowOffsetY = 18;
+  RR(0, 0, 520, 400, 16, '#1c1c1f'); g.shadowColor = 'transparent';
+  const sheen = g.createLinearGradient(0, 0, 0, 400); sheen.addColorStop(0, 'rgba(255,255,255,.06)'); sheen.addColorStop(0.5, 'rgba(255,255,255,0)');
+  RR(0, 0, 520, 400, 16, sheen);
+  SR(0.5, 0.5, 519, 399, 16, 'rgba(255,255,255,.14)');
+  trafficLights(22, 22);
+  if (appIcon.complete && appIcon.naturalWidth) g.drawImage(appIcon, 212, 58, 96, 96);
+  F(700, 32, RND); T('GatePass', 260, 200, '#fff', 'center');
+  F(400, 15); T('Sideload apps. Forget the 7‑day limit.', 260, 226, SEC, 'center');
+  // the button: macOS push-button proportions in the site's emerald
+  const { bx, by, bw, bh } = GET;
+  g.shadowColor = `rgba(33,204,143,${hover ? 0.6 : 0.38})`; g.shadowBlur = hover ? 34 : 24; g.shadowOffsetY = 8;
+  const bg = g.createLinearGradient(0, by, 0, by + bh); bg.addColorStop(0, hover ? '#3ff0b0' : '#2fe3a2'); bg.addColorStop(1, hover ? '#1fc98b' : '#17b57c');
+  RR(bx, by, bw, bh, 14, bg); g.shadowColor = 'transparent';
+  const hi = g.createLinearGradient(0, by, 0, by + bh); hi.addColorStop(0, 'rgba(255,255,255,.55)'); hi.addColorStop(0.35, 'rgba(255,255,255,0)');
+  SR(bx + 0.75, by + 0.75, bw - 1.5, bh - 1.5, 13.5, hi, 1.5);
+  F(650, 19); const label = 'Get GatePass for Mac', tw = g.measureText(label).width, x0 = bx + (bw - tw - 30) / 2, cy = by + bh / 2;
+  g.strokeStyle = '#04110c'; g.lineWidth = 2.4; g.lineCap = 'round'; g.lineJoin = 'round';
+  g.beginPath(); g.moveTo(x0 + 9, cy - 9); g.lineTo(x0 + 9, cy + 3); g.moveTo(x0 + 3.5, cy - 2); g.lineTo(x0 + 9, cy + 3.5); g.lineTo(x0 + 14.5, cy - 2); g.moveTo(x0 + 2, cy + 9); g.lineTo(x0 + 16, cy + 9); g.stroke();
+  T(label, x0 + 30, cy + 6.5, '#04110c');
+  F(400, 12.5); T('Free · Open source · macOS 14 or later', 260, 352, TER, 'center');
+  g.restore();
+}
+
+function drawScreen(mode, p, acc, time, hover) {
   const st = { time, sigs: 7, devices: [DEVS[0], DEVS[2]], selected: 0, apps: BASE_APPS(), activity: null, hover: false, spotlight: 0, statusPulse: 0 };
   let drag = null, notif = 0, settings = 0;
 
@@ -351,6 +383,7 @@ function drawScreen(mode, p, acc, time) {
   if (mode >= 6) st.devices = DEVS;
 
   drawDesktop(acc, st);
+  if (mode === 7) { drawGet(p, hover); g.setTransform(1, 0, 0, 1, 0, 0); return; }
   drawMainWindow(st);
   if (settings) drawSettings(settings);
   drawNotification(notif);
@@ -362,11 +395,18 @@ function drawScreen(mode, p, acc, time) {
    3D scene
    ===================================================================== */
 const canvas = document.getElementById('gl');
-const loaderEl = document.querySelector('.loader');
+const root = document.documentElement;
+const preBar = document.querySelector('.pre-bar span'), preN = document.querySelector('.pre-n');
+let pctTarget = 0, pct = 0, isReady = false;
+function ready() {
+  if (isReady) return; isReady = true; pctTarget = 1;
+  setTimeout(() => root.classList.add('ready'), reduce ? 0 : 450);
+}
+setTimeout(ready, 9000);   // never trap the visitor behind the loader
 let renderer = null;
 try {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
-} catch (e) { document.documentElement.classList.add('no-webgl'); canvas.style.display = 'none'; }
+} catch (e) { document.documentElement.classList.add('no-webgl'); canvas.style.display = 'none'; ready(); }
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.1, 100);
@@ -375,6 +415,29 @@ camera.lookAt(0, 0, 0);
 
 let rig = null, lid = null, LID_OPEN = -1.92, screenTex = null, ring, waves = [], rim, key, screenLight = null, modelScale = 1, screenKey = '';
 let loaded = false, loadedAt = 0;
+let spot = null, screenMesh = null, screenQuad = null, outroHover = false, lidT = 0;
+const outroEl = document.querySelector('.outro'), beamEl = document.querySelector('.beam'), hitEl = document.querySelector('.outro-hit');
+hitEl.addEventListener('pointerenter', () => { outroHover = true; });
+hitEl.addEventListener('pointerleave', () => { outroHover = false; });
+hitEl.addEventListener('focus', () => { outroHover = true; });
+hitEl.addEventListener('blur', () => { outroHover = false; });
+
+/* local-space corners of the display panel, read from its UVs, so a point on the
+   screen canvas can be projected to the page (used to put a real link over the drawn button) */
+function readScreenQuad(mesh) {
+  const pos = mesh.geometry.attributes.position, uv = mesh.geometry.attributes.uv;
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (let i = 0; i < uv.count; i++) { u0 = Math.min(u0, uv.getX(i)); u1 = Math.max(u1, uv.getX(i)); v0 = Math.min(v0, uv.getY(i)); v1 = Math.max(v1, uv.getY(i)); }
+  const near = (u, v) => { let best = 0, bd = Infinity; for (let i = 0; i < uv.count; i++) { const d = Math.hypot(uv.getX(i) - u, uv.getY(i) - v); if (d < bd) { bd = d; best = i; } } return new THREE.Vector3().fromBufferAttribute(pos, best); };
+  return { u0, u1, v0, v1, p00: near(u0, v0), p10: near(u1, v0), p01: near(u0, v1), p11: near(u1, v1) };
+}
+const _a = new THREE.Vector3(), _b = new THREE.Vector3();
+function screenToPage(fx, fy) {     // fx, fy: 0..1 across the screen canvas
+  const q = screenQuad, x = (fx - q.u0) / (q.u1 - q.u0), y = (fy - q.v0) / (q.v1 - q.v0);
+  _a.copy(q.p00).lerp(q.p10, x); _b.copy(q.p01).lerp(q.p11, x); _a.lerp(_b, y);
+  screenMesh.localToWorld(_a).project(camera);
+  return [(_a.x * 0.5 + 0.5) * innerWidth, (-_a.y * 0.5 + 0.5) * innerHeight];
+}
 const glowEl = document.querySelector('.glow3d');
 
 /* photo-studio environment: dark room, a big overhead softbox and two strip lights.
@@ -417,6 +480,7 @@ if (renderer) {
   key.shadow.radius = 10; key.shadow.blurSamples = 16; key.shadow.bias = -0.0004;
   scene.add(key, key.target);
   rim = new THREE.PointLight(0x22cc8f, 14, 12, 1.8); rim.position.set(2.5, 2.2, -2.5); scene.add(rim);
+  spot = new THREE.SpotLight(0xffffff, 0, 16, 0.42, 0.85, 1); scene.add(spot, spot.target);
 
   screenTex = new THREE.CanvasTexture(sc);
   screenTex.colorSpace = THREE.SRGBColorSpace;
@@ -449,7 +513,6 @@ if (renderer) {
   }
 
   const manager = new THREE.LoadingManager();
-  manager.onProgress = (url, done, total) => { loaderEl.firstElementChild.style.width = `${(done / total) * 100}%`; };
   const gl = new GLTFLoader(manager);
   gl.load('models/macbook.glb', gltf => {
     const model = gltf.scene;
@@ -461,7 +524,7 @@ if (renderer) {
       const n = o.material && o.material.name;
       // the model's screen normals point backwards, so render both sides; the logo decal is
       // double-sided in the file and would otherwise show through on the screen side
-      if (n === 'OLED') o.material = new THREE.MeshBasicMaterial({ map: screenTex, toneMapped: false, side: THREE.DoubleSide });
+      if (n === 'OLED') { o.material = new THREE.MeshBasicMaterial({ map: screenTex, toneMapped: false, side: THREE.DoubleSide }); screenMesh = o; screenQuad = readScreenQuad(o); }
       else if (n === 'Apple logo') o.material.side = THREE.FrontSide;
       else if (n === 'Display glass nanotexture') o.visible = false;
       else if (n === 'Display glass') { o.material.opacity = 0.08; o.material.roughness = 0.05; }
@@ -494,17 +557,18 @@ if (renderer) {
     contact(2.9, 2.1, 0.9, 0.002);
     contact(5.2, 3.8, 0.45, 0.0015);
     scene.add(rig);
-    loaded = true; loadedAt = performance.now();
-    loaderEl.classList.add('done');
+    root.classList.add('gl');
+    loaded = true; loadedAt = performance.now() + (reduce ? 0 : 700);
+    ready();
     measure();
-  }, undefined, () => {
-    document.documentElement.classList.add('no-webgl'); canvas.style.display = 'none';
+  }, e => { pctTarget = Math.max(pctTarget, Math.min(0.96, e.loaded / (e.total || 6177536))); }, () => {
+    document.documentElement.classList.add('no-webgl'); canvas.style.display = 'none'; ready();
   });
 }
 
 /* ---------- choreography: [x, y, z, rx, ry, rz, scale, lidOpen] ---------- */
 const POSES_DESK = [
-  [0, -0.42, 0, 0.16, -0.4, 0, 1.0, 1],
+  [-0.2, -0.56, 0, 0.2, -0.32, 0, 0.86, 0.22],   // hero: lid mostly shut so the GATEPASS word reads
   [1.35, -0.68, 0.2, 0.1, -0.38, 0, 1.15, 1],
   [-1.35, -0.68, 0.2, 0.1, 0.4, 0, 1.15, 1],
   [1.3, -0.62, 0, 0.2, -0.5, 0, 1.1, 1],
@@ -513,7 +577,7 @@ const POSES_DESK = [
   [0, 1.1, -0.6, 0.35, -0.15, 0, 0.8, 0],
 ];
 const POSES_MOB = [
-  [0, 0.1, 0, 0.16, -0.4, 0, 0.68, 1],
+  [0, 0.62, 0, 0.16, -0.4, 0, 0.64, 0.27],
   [0, 0.38, 0, 0.12, -0.3, 0, 0.66, 1],
   [0, 0.38, 0, 0.12, 0.3, 0, 0.66, 1],
   [0, 0.38, 0, 0.2, -0.4, 0, 0.64, 1],
@@ -533,6 +597,13 @@ function poseAt(u) {
     out[6] *= clamp(halfW / 3.06, 0.6, 1.15);
   }
   return out;
+}
+
+// outro: front and centre, lid driven by scroll
+function outroPose(lid) {
+  if (mobile) return [0, 0.05, 0, 0.14, 0, 0, 0.74, lid];
+  const halfW = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z * camera.aspect;
+  return [0, -0.6, 0.6, 0.13, 0, 0, 1.12 * clamp(halfW / 3.06, 0.6, 1.1), lid];
 }
 
 let cur = null;
@@ -558,22 +629,46 @@ addEventListener('load', measure);
 appIcon.onload = () => { screenKey = ''; };
 document.fonts && document.fonts.ready.then(() => { measure(); screenKey = ''; });
 
+let lastAccent = '', railIdx = -1, lenis = null;
+const railLinks = [...document.querySelectorAll('.rail a')];
 const clock = new THREE.Clock();
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05), time = clock.elapsedTime;
+  if (lenis) lenis.raf(performance.now());
   const st = scrollState();
   updateDom(st);
+  if (pct < 1) {
+    pct = Math.min(1, pct + Math.max(0.004, (pctTarget - pct) * 0.12));
+    if (pct > pctTarget && pctTarget < 1) pct = pctTarget;
+    preBar.style.transform = `scaleX(${pct})`; preN.textContent = `${Math.round(pct * 100)}%`;
+  }
 
   const u = clamp(st.t - 0.5, 0, 6);
   const ai = clamp(Math.floor(u), 0, 5);
   const accent = mixHex(ACCENTS[ai], ACCENTS[ai + 1], smooth(clamp(u - ai)));
-  document.documentElement.style.setProperty('--accent', accent);
+  if (accent !== lastAccent) { lastAccent = accent; root.style.setProperty('--accent', accent); }
+  root.classList.toggle('scrolled', scrollY > 40);
+  root.classList.toggle('rail-on', u > 0.55 && u < 5.45);
+  const ri = clamp(Math.round(u), 1, 5) - 1;
+  if (ri !== railIdx) { railIdx = ri; railLinks.forEach((a, k) => a.classList.toggle('on', k === ri)); }
+
+  // outro progress: oe = entering the viewport, op = through the pinned stretch
+  const or = outroEl.getBoundingClientRect(), pinLen = Math.max(1, or.height - innerHeight);
+  const oe = clamp(1 - or.top / innerHeight), op = clamp(-or.top / pinLen), exitPx = Math.max(0, -or.top - pinLen);
+  const outroOn = oe > 0 && !!rig;
+  const oFade = !outroOn ? 0 : reduce ? 1 : smooth(clamp((oe - 0.5) / 0.5));
+  // the lid opens on its own once the scene is in view: a slow, timed open rather than one tied to scroll
+  const lidGo = outroOn && oe > 0.92, lidBack = oFade < 0.05;
+  if (reduce) lidT = lidGo ? 1 : 0;
+  else if (lidGo) lidT = Math.min(1, lidT + dt / 2.8);
+  else if (lidBack) lidT = Math.max(0, lidT - dt / 0.6);
+  const oLid = easeInOut(lidT);
 
   if (renderer) {
     if (rig) {
       const intro = reduce ? 1 : clamp((performance.now() - loadedAt) / 2200);
-      const target = poseAt(u);
-      if (!cur) cur = target.slice();
+      const target = outroOn ? outroPose(oLid) : poseAt(u);
+      if (!cur || (outroOn && oFade < 0.02)) cur = target.slice();   // arrive in the dark, not mid-flight
       const k = reduce ? 1 : 1 - Math.pow(0.0009, dt);
       for (let j = 0; j < 8; j++) cur[j] = lerp(cur[j], target[j], k);
       mouse.x = lerp(mouse.x, mouse.tx, k * 0.6); mouse.y = lerp(mouse.y, mouse.ty, k * 0.6);
@@ -586,6 +681,25 @@ function frame() {
       rig.rotation.set(cur[3] + mouse.y * 0.04, cur[4] + idle + mouse.x * 0.1 - (1 - ie) * 0.6, cur[5]);
       rig.scale.setScalar(cur[6] * (0.9 + 0.1 * ie));
       if (lid) lid.rotation.x = LID_OPEN * cur[7] * easeInOut(clamp((intro - 0.15) / 0.85));
+
+      if (outroOn) {   // once the pin releases, ride away with the page
+        const worldH = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * (camera.position.z - rig.position.z);
+        rig.position.y += (exitPx / innerHeight) * worldH;
+      }
+      spot.position.set(rig.position.x, rig.position.y + 4.8, rig.position.z + 1.0);
+      spot.target.position.set(rig.position.x, rig.position.y + 0.3, rig.position.z);
+      spot.intensity = oFade * 22;
+      scene.environmentIntensity = lerp(1.2, 0.55, oFade);
+      key.intensity = lerp(1.6, 0.5, oFade);
+      beamEl.style.opacity = String(oFade * 0.6);
+      const open = outroOn && cur[7] > 0.8;
+      outroEl.classList.toggle('open', open);
+      if (open && screenQuad) {
+        const c = [[GET_BTN.x, GET_BTN.y], [GET_BTN.x + GET_BTN.w, GET_BTN.y], [GET_BTN.x, GET_BTN.y + GET_BTN.h], [GET_BTN.x + GET_BTN.w, GET_BTN.y + GET_BTN.h]].map(([x, y]) => screenToPage(x / 2048, y / 1348));
+        const xs = c.map(v => v[0]), ys = c.map(v => v[1]), x = Math.min(...xs), y = Math.min(...ys);
+        hitEl.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+        hitEl.style.width = `${(Math.max(...xs) - x).toFixed(1)}px`; hitEl.style.height = `${(Math.max(...ys) - y).toFixed(1)}px`;
+      }
 
       const col = new THREE.Color(accent);
       rim.color.copy(col);
@@ -601,7 +715,7 @@ function frame() {
       // CSS glow follows the laptop on screen
       const sp = centre.clone().project(camera);
       glowEl.style.transform = `translate(${(sp.x * 0.5 + 0.5) * innerWidth}px, ${(-sp.y * 0.5 + 0.5) * innerHeight}px) scale(${0.75 + 0.35 * cur[6]})`;
-      glowEl.style.opacity = String(ie * (1 - smooth(clamp((u - 5.3) / 0.5))));
+      glowEl.style.opacity = String(ie * Math.max(1 - smooth(clamp((u - 5.3) / 0.5)), oFade * 0.35));
       const w2 = bump(u, 2, 1.25);
       ring.visible = w2 > 0.01;
       ring.material.opacity = w2 * 0.85; ring.material.color.copy(col);
@@ -618,15 +732,64 @@ function frame() {
         m.material.opacity = w3 * (1 - ph) * 0.8; m.material.color.copy(col);
       });
 
-      const mode = clamp(Math.round(u), 0, 6);
-      const mp = mode === st.i ? st.local : mode < st.i ? 1 : 0;
+      const mode = outroOn ? 7 : clamp(Math.round(u), 0, 6);
+      const mp = outroOn ? lidT : mode === st.i ? st.local : mode < st.i ? 1 : 0;
       const animated = (mode === 1 && mp > 0.46 && mp < 0.92) || (mode === 2 && mp < 0.72);
-      const sk = `${mode}|${Math.round(mp * 300)}|${accent}|${animated ? Math.floor(time * 24) : 0}`;
-      if (sk !== screenKey) { screenKey = sk; drawScreen(mode, mp, accent, time); screenTex.needsUpdate = true; }
+      const sk = `${mode}|${Math.round(mp * 300)}|${accent}|${animated ? Math.floor(time * 24) : 0}|${outroHover ? 1 : 0}`;
+      if (sk !== screenKey) { screenKey = sk; drawScreen(mode, mp, accent, time, outroHover); screenTex.needsUpdate = true; }
     }
-    canvas.style.opacity = String(1 - smooth(clamp((u - 5.3) / 0.5)));
+    canvas.style.opacity = String(Math.max(1 - smooth(clamp((u - 5.3) / 0.5)), oFade));
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+/* =====================================================================
+   Page polish: smooth scroll, anchors, magnetic buttons, card spotlight
+   ===================================================================== */
+document.querySelectorAll('[data-ticks]').forEach(el => {
+  const n = +el.dataset.ticks;
+  for (let k = 0; k < 10; k++) { const i = document.createElement('i'); if (k < n) i.className = 'f'; i.style.setProperty('--i', k); el.append(i); }
+});
+
+const fine = matchMedia('(hover: hover) and (pointer: fine)').matches;
+if (fine && !reduce) {
+  import('https://cdn.jsdelivr.net/npm/lenis@1.1.14/dist/lenis.mjs')
+    .then(m => { lenis = new m.default({ lerp: 0.115, wheelMultiplier: 0.95 }); })
+    .catch(() => {});
+
+  document.querySelectorAll('[data-magnetic]').forEach(el => {
+    let raf = 0, x = 0, y = 0, tx = 0, ty = 0;
+    const tick = () => {
+      x = lerp(x, tx, 0.18); y = lerp(y, ty, 0.18);
+      el.style.transform = `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px)`;
+      raf = Math.abs(x - tx) + Math.abs(y - ty) > 0.05 ? requestAnimationFrame(tick) : 0;
+    };
+    const go = () => { if (!raf) raf = requestAnimationFrame(tick); };
+    el.addEventListener('pointermove', e => {
+      const r = el.getBoundingClientRect();
+      tx = (e.clientX - r.left - r.width / 2) * 0.22; ty = (e.clientY - r.top - r.height / 2) * 0.3; go();
+    });
+    el.addEventListener('pointerleave', () => { tx = ty = 0; go(); });
+  });
+
+  document.querySelectorAll('.card').forEach(el => el.addEventListener('pointermove', e => {
+    const r = el.getBoundingClientRect();
+    el.style.setProperty('--mx', `${e.clientX - r.left}px`); el.style.setProperty('--my', `${e.clientY - r.top}px`);
+  }, { passive: true }));
+}
+
+document.addEventListener('click', e => {
+  const a = e.target.closest('a[href^="#"]');
+  if (!a) return;
+  const target = document.querySelector(a.getAttribute('href'));
+  if (!target) return;
+  e.preventDefault();
+  const scene = target.classList.contains('scene');
+  // story scenes read best a little way in, once the copy has settled
+  const y = target.id === 'top' ? 0 : target.getBoundingClientRect().top + scrollY + (scene ? innerHeight * 0.3 : -90);
+  if (lenis) lenis.scrollTo(y, { duration: 1.4 });
+  else scrollTo({ top: y, behavior: reduce ? 'auto' : 'smooth' });
+  history.replaceState(null, '', a.getAttribute('href'));
+});
