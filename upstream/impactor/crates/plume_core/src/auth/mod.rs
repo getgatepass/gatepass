@@ -11,6 +11,10 @@ use crate::auth::anisette_data::AnisetteData;
 use crate::{Error, client};
 
 const GSA_ENDPOINT: &str = "https://gsa.apple.com/grandslam/GsService2";
+/// [GatePass] X-Xcode-Version for GrandSlam requests (a released Xcode, as AltSign/SideStep send).
+pub const GSA_XCODE_VERSION: &str = "27.0 (27A5218g)";
+/// [GatePass] X-Xcode-Version Apple expects on the JSON phone/trusted-device endpoints.
+pub const GSA_JSON_XCODE_VERSION: &str = "27.0 (27A5218g)";
 
 #[derive(Debug, Clone)]
 pub struct Account {

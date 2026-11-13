@@ -398,7 +398,8 @@ fn icloud_account_count() -> Option<usize> {
     let home = std::env::var("HOME").ok()?;
     let path = std::path::Path::new(&home).join("Library/Preferences/MobileMeAccounts.plist");
     if !path.exists() {
-        return Some(0);
+        // macOS 27 no longer keeps accounts here: unknown, not zero.
+        return None;
     }
     let value = plist::Value::from_file(path).ok()?;
     Some(

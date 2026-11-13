@@ -33,9 +33,16 @@ impl Account {
             HeaderValue::from_str("text/x-xml-plist").unwrap(),
         );
         gsa_headers.insert("Accept", HeaderValue::from_str("*/*").unwrap());
+        // [GatePass] with server anisette, identify like AltSign/SideStep; Apple's GSA edge
+        // also answers 503 on reused keep-alive connections. Local sign-in is unchanged.
+        if valid_anisette.user_agent.is_some() {
+            gsa_headers.insert("X-Xcode-Version", HeaderValue::from_static(crate::auth::GSA_XCODE_VERSION));
+            gsa_headers.insert("X-Apple-App-Info", HeaderValue::from_static("com.apple.gs.xcode.auth"));
+            gsa_headers.insert("Connection", HeaderValue::from_static("close"));
+        }
         gsa_headers.insert(
             "User-Agent",
-            HeaderValue::from_str("akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0").unwrap(),
+            HeaderValue::from_str(&valid_anisette.gsa_user_agent()).unwrap(),
         );
         gsa_headers.insert(
             "X-MMe-Client-Info",
@@ -46,7 +53,7 @@ impl Account {
             version: "1.0.1".to_string(),
         };
         let body = AuthTokenRequestBody {
-            cpd: valid_anisette.to_plist(true, false, false),
+            cpd: valid_anisette.sign_in_cpd(),
             app: vec![app_name.to_string()],
             c: plist::Value::Data(c.to_vec()),
             operation: "apptokens".to_owned(),

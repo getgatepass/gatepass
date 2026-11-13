@@ -2,7 +2,6 @@
 
 use std::{collections::HashMap, fs, io::Cursor, path::PathBuf};
 
-use crate::adi_proxy::LOOKUP_CLIENT_INFO;
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose;
@@ -142,6 +141,7 @@ pub struct AnisetteData {
     one_time_password: String,
     routing_info: String,
     device_description: String,
+    user_agent: String,
     local_user_id: String,
     device_unique_identifier: String,
 }
@@ -171,6 +171,12 @@ impl AnisetteData {
                     "X-Mme-Client-Info".to_string(),
                     self.device_description.clone(),
                 ),
+                // [GatePass] Apple only accepts server anisette when the User-Agent matches
+                // the identity the server advertises. Taken out again by plume_core.
+                (
+                    crate::USER_AGENT_PSEUDO_HEADER.to_string(),
+                    self.user_agent.clone(),
+                ),
             ]
             .into_iter(),
         )
@@ -194,6 +200,12 @@ impl AnisetteClient {
             .await?
             .json::<AnisetteClientInfo>()
             .await?;
+        // [GatePass] the servers still advertise macOS 10.12; present a current Mac instead.
+        log::debug!("Server advertises {}; using override", client_info.client_info);
+        let client_info = AnisetteClientInfo {
+            client_info: crate::REMOTE_CLIENT_INFO.to_string(),
+            user_agent: crate::REMOTE_USER_AGENT.to_string(),
+        };
         Ok(AnisetteClient { client_info, url })
     }
 
@@ -275,6 +287,7 @@ impl AnisetteClient {
                 one_time_password,
                 routing_info,
                 device_description: self.client_info.client_info.clone(),
+                user_agent: self.client_info.user_agent.clone(),
                 local_user_id: encode_hex(&state.md_lu()),
                 device_unique_identifier: state.device_id(),
             }),
@@ -288,7 +301,7 @@ impl AnisetteClient {
             .build_apple_request(
                 &state,
                 http_client.get("https://gsa.apple.com/grandslam/GsService2/lookup"),
-                LOOKUP_CLIENT_INFO,
+                &self.client_info.client_info,
             )
             .send()
             .await?;
@@ -527,7 +540,14 @@ impl AnisetteHeadersProvider for RemoteAnisetteProviderV3 {
 
         fs::create_dir_all(&self.configuration_path)?;
 
-        let config_path = self.configuration_path.join("state.plist");
+        // [GatePass] one provisioning state per server: a state provisioned through another
+        // server (or an older identity) is not valid here.
+        let host = client
+            .url
+            .trim_start_matches("https://")
+            .trim_end_matches('/')
+            .replace(['/', ':'], "_");
+        let config_path = self.configuration_path.join(format!("state-{host}.plist"));
         if self.state.is_none() {
             self.state = Some(if let Ok(text) = plist::from_file(&config_path) {
                 text

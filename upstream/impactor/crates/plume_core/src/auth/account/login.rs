@@ -74,8 +74,17 @@ impl Account {
         loop {
             match response {
                 LoginState::NeedsDevice2FA => {
+                    // [GatePass] with server anisette ask GET /auth first: without it Apple
+                    // answers the push with 200 but never delivers the code (AltSign/isideload).
+                    // Local sign-in keeps the original order.
+                    let remote = _self.get_anisette().await.user_agent.is_some();
+                    if remote && trusted_phone_numbers.is_empty() {
+                        if let Ok(extras) = _self.get_auth_extras().await {
+                            trusted_phone_numbers = extras.trusted_phone_numbers;
+                        }
+                    }
                     response = _self.send_2fa_to_devices().await?;
-                    if trusted_phone_numbers.is_empty() {
+                    if !remote && trusted_phone_numbers.is_empty() {
                         if let Ok(extras) = _self.get_auth_extras().await {
                             trusted_phone_numbers = extras.trusted_phone_numbers;
                         }
@@ -109,7 +118,17 @@ impl Account {
                         }
                     }
                     let id = trusted_phone_numbers.first().map(|p| p.id).unwrap_or(1);
-                    response = _self.send_sms_2fa_to_devices(id).await?;
+                    response = match _self.send_sms_2fa_to_devices(id).await {
+                        // [GatePass] Apple refuses texted codes for sign-ins with server anisette
+                        // (macOS 27); a push to the account's trusted devices still works.
+                        Err(Error::AuthSrpWithMessage(403, _))
+                            if _self.get_anisette().await.user_agent.is_some() =>
+                        {
+                            log::warn!("SMS 2FA refused (403), asking trusted devices instead");
+                            _self.send_2fa_to_devices().await?
+                        }
+                        other => other?,
+                    };
                 }
                 LoginState::NeedsSMS2FAVerification(body) => {
                     let request = TwoFactorRequest {
@@ -160,9 +179,16 @@ impl Account {
             HeaderValue::from_str("text/x-xml-plist").unwrap(),
         );
         gsa_headers.insert("Accept", HeaderValue::from_str("*/*").unwrap());
+        // [GatePass] with server anisette, identify like AltSign/SideStep; Apple's GSA edge
+        // also answers 503 on reused keep-alive connections. Local sign-in is unchanged.
+        if anisette.user_agent.is_some() {
+            gsa_headers.insert("X-Xcode-Version", HeaderValue::from_static(crate::auth::GSA_XCODE_VERSION));
+            gsa_headers.insert("X-Apple-App-Info", HeaderValue::from_static("com.apple.gs.xcode.auth"));
+            gsa_headers.insert("Connection", HeaderValue::from_static("close"));
+        }
         gsa_headers.insert(
             "User-Agent",
-            HeaderValue::from_str("akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0").unwrap(),
+            HeaderValue::from_str(&anisette.gsa_user_agent()).unwrap(),
         );
         gsa_headers.insert(
             "X-MMe-Client-Info",
@@ -174,7 +200,7 @@ impl Account {
         };
         let init_body = InitRequestBody {
             a_pub: plist::Value::Data(a_pub),
-            cpd: anisette.to_plist(true, false, false),
+            cpd: anisette.sign_in_cpd(),
             operation: "init".to_string(),
             ps: vec!["s2k".to_string(), "s2k_fo".to_string()],
             username: username_for_spd.clone(),
@@ -221,7 +247,7 @@ impl Account {
         let challenge_body = ChallengeRequestBody {
             m: plist::Value::Data(verifier.proof().to_vec()),
             c: c.to_string(),
-            cpd: anisette.to_plist(true, false, false),
+            cpd: anisette.sign_in_cpd(),
             operation: "complete".to_string(),
             username: username_for_spd.clone(),
         };
@@ -264,6 +290,11 @@ impl Account {
         self.spd = Some(spd);
 
         let status = res.get("Status").unwrap().as_dictionary().unwrap();
+        log::info!(
+            "GSA sign-in status: au={:?} hsc={:?}",
+            status.get("au").and_then(|v| v.as_string()),
+            status.get("hsc").and_then(|v| v.as_signed_integer())
+        );
         if let Some(Value::String(auth_type)) = status.get("au") {
             return match auth_type.as_str() {
                 "trustedDeviceSecondaryAuth" => Ok(LoginState::NeedsDevice2FA),
@@ -289,6 +320,16 @@ impl Account {
     pub fn get_name(&self) -> (String, String) {
         let base = self.spd.as_ref().unwrap();
         (plist_get_string!(base, "fn"), plist_get_string!(base, "ln"))
+    }
+
+    /// [GatePass] New anisette (new one-time password), stored for later requests too.
+    pub async fn fresh_anisette(&self) -> AnisetteData {
+        let mut locked = self.anisette.lock().await;
+        match locked.refresh().await {
+            Ok(fresh) => *locked = fresh,
+            Err(e) => log::warn!("Couldn't refresh anisette, reusing the current one: {e}"),
+        }
+        locked.clone()
     }
 
     pub async fn get_anisette(&self) -> AnisetteData {

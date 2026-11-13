@@ -43,5 +43,5 @@ Data lives in `~/Library/Application Support/GatePass`.
 ## Notes
 
 - Free Apple IDs: apps last 7 days, max 3 active sideloaded apps, 10 new App IDs per week. These are Apple's limits.
-- Apple ID login uses Apple's private APIs (same as every sideloader). On macOS, anisette data is generated locally by the system's AOSKit, so Apple sees your real Mac and no third-party server is involved. The Mac must be signed in to an Apple Account (or the App Store) at least once; otherwise sign-in fails with "Anisette not provisioned". Public anisette servers aren't offered because Apple currently rejects them. Your password is only sent to Apple.
+- Apple ID login uses Apple's private APIs (same as every sideloader). On macOS 26 and earlier, anisette data is generated locally by the system's AOSKit, so Apple sees your real Mac and no third-party server is involved. macOS 27 no longer gives this data to third-party apps, so GatePass then uses a public Mac-backed anisette server (mac-ani.jkcoxson.com, with ani.iloader.app, new.ani.sidestore.io and ani3.stikstore.app as fallbacks). Your password is only sent to Apple.
 - Use it for apps you have the right to install.

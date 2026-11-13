@@ -8,7 +8,10 @@ use crate::auth::{Account, AuthenticationExtras, LoginState, PhoneNumber, Verify
 
 impl Account {
     pub async fn send_2fa_to_devices(&self) -> Result<LoginState, Error> {
-        let headers = self.build_2fa_headers(false).await;
+        // [GatePass] with server anisette Apple wants JSON content types here (plist gets 200
+        // but nothing is delivered). Local sign-in keeps the original plist request.
+        let remote = self.get_anisette().await.user_agent.is_some();
+        let headers = self.build_2fa_headers(remote).await;
 
         let res = self
             .client
@@ -22,7 +25,12 @@ impl Account {
         if !status_code.is_success() {
             return Err(Error::AuthSrpWithMessage(
                 status_code.as_u16() as i64,
-                "Failed to send 2FA to devices".to_string(),
+                if remote {
+                    "Failed to send 2FA to devices (sign-in through a public anisette server)"
+                } else {
+                    "Failed to send 2FA to devices"
+                }
+                .to_string(),
             ));
         }
 
@@ -137,8 +145,28 @@ impl Account {
         let identity_token = general_purpose::STANDARD.encode(format!("{}:{}", dsid, token));
 
         let mut headers = HeaderMap::new();
-        let valid_anisette = self.get_anisette().await;
-        for (k, v) in valid_anisette.generate_headers(false, true, true) {
+        // [GatePass] an anisette one-time password is single-use; reusing the sign-in's makes
+        // Apple refuse or silently drop 2FA requests. Fetch a fresh one for every request.
+        let current = self.get_anisette().await;
+        let remote = current.user_agent.is_some();
+        let valid_anisette = if remote { self.fresh_anisette().await } else { current };
+        // [GatePass] with server anisette send only what isideload/iloader send.
+        let anisette_headers = if remote {
+            let all = valid_anisette.generate_headers(false, true, false);
+            [
+                "X-Mme-Device-Id",
+                "X-Apple-I-MD",
+                "X-Apple-I-MD-M",
+                "X-Apple-I-MD-RINFO",
+                "X-Mme-Client-Info",
+            ]
+            .iter()
+            .filter_map(|k| all.get(*k).map(|v| (k.to_string(), v.clone())))
+            .collect::<std::collections::HashMap<_, _>>()
+        } else {
+            valid_anisette.generate_headers(false, true, true)
+        };
+        for (k, v) in anisette_headers {
             headers.insert(
                 HeaderName::from_bytes(k.as_bytes()).unwrap(),
                 HeaderValue::from_str(&v).unwrap(),
@@ -151,14 +179,29 @@ impl Account {
             headers.insert("Content-Type", HeaderValue::from_static("application/json"));
             headers.insert("Accept", HeaderValue::from_static("application/json"));
         }
-        headers.insert("User-Agent", HeaderValue::from_static("Xcode"));
+        if remote {
+            headers.insert(
+                "User-Agent",
+                HeaderValue::from_str(&valid_anisette.gsa_user_agent()).unwrap(),
+            );
+            headers.insert(
+                "X-Xcode-Version",
+                HeaderValue::from_static(crate::auth::GSA_XCODE_VERSION),
+            );
+            headers.insert("X-Apple-App-Info", HeaderValue::from_static("com.apple.gs.xcode.auth"));
+            headers.insert("Connection", HeaderValue::from_static("close"));
+        } else {
+            headers.insert("User-Agent", HeaderValue::from_static("Xcode"));
+        }
         headers.insert("Accept-Language", HeaderValue::from_static("en-us"));
         headers.append(
             "X-Apple-Identity-Token",
             HeaderValue::from_str(&identity_token).unwrap(),
         );
 
-        if let Ok(locale) = valid_anisette.get_header("x-apple-locale") {
+        if remote {
+            // isideload sends no Loc header
+        } else if let Ok(locale) = valid_anisette.get_header("x-apple-locale") {
             headers.insert("Loc", HeaderValue::from_str(&locale).unwrap());
         }
 

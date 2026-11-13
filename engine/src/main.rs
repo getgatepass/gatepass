@@ -146,6 +146,7 @@ async fn anisette_check() -> Result<()> {
     emit(json!({
         "type": "anisette",
         "headers": names,
+        "user_agent": data.gsa_user_agent(),
         "diagnostics": plume_core::anisette_diagnostics(),
     }));
     Ok(())
@@ -218,6 +219,8 @@ fn friendly_error(e: &anyhow::Error) -> String {
         "This Apple ID has too many certificates. Try again — GatePass will replace an old one."
     } else if lower.contains("maximum") && lower.contains("app id") {
         "A free Apple ID allows 10 new App IDs per week. Wait a few days or reuse an IPA you already installed."
+    } else if lower.contains("public anisette server") && lower.contains("403") {
+        "This Mac doesn't give GatePass Apple's sign-in identity (macOS 27 blocks it for apps like GatePass), so GatePass signed in through a public anisette server. Apple refused to send a verification code this time. Wait a few minutes and try again. If it keeps happening, please send the developer a screenshot of this whole message."
     } else if lower.contains("2fa") && lower.contains("403") {
         "Apple refused to send a verification code. Your password is correct — try again in a few minutes. If it keeps happening, check whether your Apple ID uses security keys; those aren't supported."
     } else if lower.contains("429") {
@@ -228,6 +231,8 @@ fn friendly_error(e: &anyhow::Error) -> String {
         "Incorrect verification code. Try again."
     } else if lower.contains("anisette not provisioned") || lower.contains("anisette error: unsupported device") {
         "macOS didn't give GatePass this Mac's Apple sign-in identity, so sign-in can't continue. This has nothing to do with your password. GatePass doesn't work in a virtual machine or on a Hackintosh. Otherwise, please send the developer a screenshot of this whole message — the details below say what went wrong."
+    } else if lower.contains("anisette server") || lower.contains("anisette error") {
+        "Couldn't get a sign-in identity: this Mac didn't provide one and the public anisette servers couldn't be reached. Check your internet connection and try again. If it keeps happening, please send the developer a screenshot of this whole message."
     } else if lower.contains("-80045") {
         "Apple temporarily refused this sign-in. Wait 15–30 minutes and try again."
     } else if lower.contains("sign-in cancelled") {

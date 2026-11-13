@@ -55,9 +55,12 @@ enum Engine {
         process.arguments = args
         var env = ProcessInfo.processInfo.environment
         env["RUST_LOG"] = env["RUST_LOG"] ?? "info"
-        // Sign-in identity always comes from this Mac. Public anisette servers are rejected
-        // by Apple (403 at 2FA, -80045 at login), so they are not offered.
-        env["GATEPASS_ANISETTE"] = "local"
+        // Sign-in identity comes from this Mac when macOS provides it; macOS 27 refuses it to
+        // third-party apps, so the engine then falls back to a public anisette server ("auto").
+        // GATEPASS_ANISETTE set in GatePass's own environment wins (for testing).
+        if !["local", "auto", "remote"].contains(env["GATEPASS_ANISETTE"] ?? "") {
+            env["GATEPASS_ANISETTE"] = "auto"
+        }
         if UserDefaults.standard.bool(forKey: Pref.keychain) { env["GATEPASS_KEYCHAIN"] = "1" }
         process.environment = env
 

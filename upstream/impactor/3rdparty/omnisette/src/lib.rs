@@ -61,13 +61,27 @@ pub enum AnisetteError {
 
 pub const DEFAULT_ANISETTE_URL: &str = "https://ani.f1sh.me/";
 
-pub const DEFAULT_ANISETTE_URL_V3: &str = "https://ani.sidestore.io";
+pub const DEFAULT_ANISETTE_URL_V3: &str = "https://mac-ani.jkcoxson.com";
 
-/// [GatePass] Public v3 servers tried in order. ani.sidestore.io advertises macOS 13.1;
-/// mac-ani.jkcoxson.com advertises macOS 10.12, which Apple may reject during 2FA,
-/// so it is only the last resort.
-pub const FALLBACK_ANISETTE_URLS_V3: &[&str] =
-    &["https://ani.sidestore.io", "https://mac-ani.jkcoxson.com"];
+/// [GatePass] Public v3 servers tried in order: Mac-backed ones, as iloader 2.4.1 uses.
+/// Android-backed servers are rejected by Apple since 2026-10 (-80045 / 503), and
+/// Windows-backed ones work only part of the time and not with 2FA.
+pub const FALLBACK_ANISETTE_URLS_V3: &[&str] = &[
+    "https://mac-ani.jkcoxson.com",
+    "https://ani.iloader.app",
+    "https://new.ani.sidestore.io",
+    "https://ani3.stikstore.app",
+];
+
+/// [GatePass] Identity sent to Apple with server anisette instead of what the servers
+/// advertise (macOS 10.12, which Apple now rejects on /auth: -23782, 403). Same as iloader.
+pub const REMOTE_CLIENT_INFO: &str =
+    "<Mac15,7> <macOS;27.0;26A5378j> <com.apple.AuthKit/1 (com.apple.akd/1.0)>";
+pub const REMOTE_USER_AGENT: &str = "akd/1.0 CFNetwork/811.5.4";
+
+/// [GatePass] Key under which a remote provider passes the User-Agent that matches
+/// its identity. Not a real header; plume_core removes it before sending.
+pub const USER_AGENT_PSEUDO_HEADER: &str = "X-GatePass-User-Agent";
 
 #[derive(Clone, Debug)]
 pub struct AnisetteConfiguration {
@@ -147,14 +161,13 @@ impl AnisetteHeaders {
     pub fn get_anisette_headers_provider(
         configuration: AnisetteConfiguration,
     ) -> Result<AnisetteHeadersProviderRes, AnisetteError> {
-        // [GatePass] On macOS use the machine's own identity. Apple rejects identities
-        // from public anisette servers (403 during 2FA, -80045 at login), so the default
-        // never falls back to them.
-        // GATEPASS_ANISETTE: "local" (default), "auto" (local, then public server) or
-        // "remote" — the latter two only for debugging.
+        // [GatePass] On macOS use the machine's own identity when macOS provides it.
+        // macOS 27 refuses it to third-party apps (adid -45070), so "auto" then falls back
+        // to a Windows-backed public anisette server.
+        // GATEPASS_ANISETTE: "auto" (default), "local" (never a third party) or "remote".
         #[cfg(target_os = "macos")]
         {
-            let policy = std::env::var("GATEPASS_ANISETTE").unwrap_or_else(|_| "local".into());
+            let policy = std::env::var("GATEPASS_ANISETTE").unwrap_or_else(|_| "auto".into());
             if policy != "remote" {
                 match aos_kit::AOSKitAnisetteProvider::new() {
                     Ok(p) => {
@@ -167,7 +180,10 @@ impl AnisetteHeaders {
                         log::error!("Local AOSKit anisette unavailable: {e} [{diag}]");
                         return Err(AnisetteError::Anyhow(anyhow::anyhow!("{e} [diag: {diag}]")));
                     }
-                    Err(e) => log::warn!("Local AOSKit anisette unavailable ({e}), falling back"),
+                    Err(e) => log::warn!(
+                        "Local AOSKit anisette unavailable ({e}) [{}], falling back to a public anisette server",
+                        aos_kit::diagnostics()
+                    ),
                 }
             }
         }

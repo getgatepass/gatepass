@@ -1,6 +1,6 @@
 [package]
 name = "gatepass-engine"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 license = "MIT"
 description = "Headless signing/installing engine for GatePass, built on Impactor's crates."

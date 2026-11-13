@@ -8,6 +8,8 @@ use crate::Error;
 #[derive(Debug, Clone)]
 pub struct AnisetteData {
     pub base_headers: HashMap<String, String>,
+    /// [GatePass] User-Agent matching a remote server's identity, if any.
+    pub user_agent: Option<String>,
     pub generated_at: SystemTime,
     pub config: AnisetteConfiguration,
 }
@@ -15,13 +17,22 @@ pub struct AnisetteData {
 impl AnisetteData {
     pub async fn new(config: AnisetteConfiguration) -> Result<Self, Error> {
         let mut b = AnisetteHeaders::get_anisette_headers_provider(config.clone())?;
-        let base_headers = b.provider.get_authentication_headers().await?;
+        let mut base_headers = b.provider.get_authentication_headers().await?;
+        let user_agent = base_headers.remove(omnisette::USER_AGENT_PSEUDO_HEADER);
 
         Ok(AnisetteData {
             base_headers,
+            user_agent,
             generated_at: SystemTime::now(),
             config,
         })
+    }
+
+    /// User-Agent for GrandSlam requests: the remote server's own when there is one.
+    pub fn gsa_user_agent(&self) -> String {
+        self.user_agent
+            .clone()
+            .unwrap_or_else(|| "akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0".to_string())
     }
 
     pub fn needs_refresh(&self) -> bool {
@@ -86,6 +97,32 @@ impl AnisetteData {
         }
 
         headers
+    }
+
+    /// [GatePass] Client data for GrandSlam sign-in requests. With a remote server's identity,
+    /// send only the fields current clients send (AltSign PR #61 / SideStep); Apple otherwise
+    /// offers only SMS for the verification code, which it then refuses.
+    pub fn sign_in_cpd(&self) -> plist::Dictionary {
+        if self.user_agent.is_none() {
+            return self.to_plist(true, false, false);
+        }
+        let mut d = plist::Dictionary::new();
+        for (k, v) in [
+            ("bootstrap", "true"),
+            ("icscrec", "true"),
+            ("pbe", "false"),
+            ("prkgen", "true"),
+            ("svct", "iCloud"),
+            ("loc", "en_US"),
+        ] {
+            d.insert(k.to_string(), plist::Value::String(v.to_string()));
+        }
+        for key in ["X-Apple-I-MD", "X-Apple-I-MD-M", "X-Mme-Device-Id"] {
+            if let Some(v) = self.base_headers.get(key) {
+                d.insert(key.to_string(), plist::Value::String(v.clone()));
+            }
+        }
+        d
     }
 
     pub fn to_plist(&self, cpd: bool, client_info: bool, app_info: bool) -> plist::Dictionary {
