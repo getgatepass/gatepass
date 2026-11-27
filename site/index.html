@@ -244,7 +244,31 @@
   .b h3 { margin: 0 0 6px; font-size: 23px; letter-spacing: -.025em; line-height: 1.15; }
   .b p { margin: 0; color: var(--muted); font-size: 15.5px; max-width: 420px; }
   .b .art { flex: 1; display: grid; place-items: center; margin-bottom: 24px; min-height: 150px; }
-  .b-4 { grid-column: span 4; } .b-2 { grid-column: span 2; } .b-6 { grid-column: span 6; }
+  .b-4 { grid-column: span 4; } .b-2 { grid-column: span 2; } .b-3 { grid-column: span 3; } .b-6 { grid-column: span 6; }
+
+  /* several Apple IDs */
+  .ids { width: 100%; max-width: 320px; display: grid; gap: 8px; }
+  .ids div { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 14px; background: rgba(255,255,255,.04); border: 1px solid var(--line); font-size: 14px; transition: background .4s var(--ease), border-color .4s var(--ease); }
+  .ids .av { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; font-weight: 700; font-size: 13px; color: #fff; flex: none; }
+  .ids span { flex: 1; min-width: 0; } .ids span small { display: block; color: var(--dim); font-size: 12px; }
+  .ids i { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line-2); flex: none; transition: all .4s var(--ease); }
+  .ids .on { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+  .ids .on i { border: 0; background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2304110c' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / 11px no-repeat; }
+  .card:hover .ids .on { background: rgba(255,255,255,.04); border-color: var(--line); }
+  .card:hover .ids .on i { background: none; border: 1.5px solid var(--line-2); }
+  .card:hover .ids .off { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+  .card:hover .ids .off i { border: 0; background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2304110c' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / 11px no-repeat; }
+
+  /* updates itself */
+  .upd { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .upd .ver { font: 500 12px var(--mono); color: var(--muted); letter-spacing: .02em; }
+  .upd .ver b { color: var(--accent); font-weight: 500; }
+  .upd .btn { display: inline-flex; align-items: center; gap: 9px; padding: 11px 18px; border-radius: 999px; background: var(--accent); color: var(--ink); font-weight: 600; font-size: 15px; box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 30%, transparent); }
+  .upd .btn svg { width: 17px; height: 17px; transition: transform .7s var(--ease); }
+  .card:hover .upd .btn svg { transform: rotate(360deg); }
+  .upd .bar { width: 200px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .upd .bar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, var(--accent), #1bb3c9); transform-origin: left; animation: fill 3.2s var(--ease) infinite; }
+  @keyframes fill { 0% { transform: scaleX(0); } 70%, 100% { transform: scaleX(1); } }
 
   .mb { width: 100%; max-width: 560px; align-self: start; }
   .mb-bar { display: flex; align-items: center; justify-content: flex-end; gap: 16px; height: 34px; padding: 0 14px; border-radius: 12px 12px 0 0; background: rgba(0,0,0,.45); border: 1px solid var(--line); border-bottom: 0; font-size: 13px; color: rgba(255,255,255,.85); }
@@ -361,7 +385,7 @@
   /* ---------- responsive ---------- */
   @media (max-width: 980px) {
     .bento { grid-template-columns: repeat(2, 1fr); }
-    .b-4, .b-6 { grid-column: span 2; } .b-2 { grid-column: span 1; }
+    .b-4, .b-6, .b-3 { grid-column: span 2; } .b-2 { grid-column: span 1; }
     .faq { grid-template-columns: 1fr; gap: 28px; } .faq .sec-head { position: static; }
   }
   @media (max-width: 820px) {
@@ -455,7 +479,7 @@
             View source
           </a>
         </div>
-        <div class="meta">Free · MIT · macOS 14+ · no account with us</div>
+        <div class="meta"><a href="https://github.com/getgatepass/gatepass/releases/latest" data-version>v0.1.8</a> · Free · MIT · macOS 14+ · no account with us</div>
       </div>
     </div>
     <div class="scroll-hint" aria-hidden="true">Scroll<i></i></div>
@@ -559,6 +583,23 @@
             <h3>Keychain if you want it.</h3>
             <p>Your session sits in a user-only file by default. Your Apple ID password is never saved either way.</p>
           </div>
+          <div class="card b b-3">
+            <div class="art"><div class="ids" aria-hidden="true">
+              <div class="on"><span class="av" style="background:linear-gradient(135deg,#21cc8f,#0891b3)">M</span><span>Main Apple ID<small>2 apps</small></span><i></i></div>
+              <div class="off"><span class="av" style="background:linear-gradient(135deg,#7c6cf2,#4f46e5)">S</span><span>Spare Apple ID<small>1 app</small></span><i></i></div>
+            </div></div>
+            <h3>Several Apple IDs.</h3>
+            <p>Out of signatures this week? Add a second Apple ID and switch with one click. Each app keeps refreshing with the Apple ID that installed it.</p>
+          </div>
+          <div class="card b b-3">
+            <div class="art"><div class="upd" aria-hidden="true">
+              <div class="ver">Update ready · <b data-version>v0.1.8</b></div>
+              <div class="bar"><i></i></div>
+              <div class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-14 5.300M4 12a8 8 0 0 1 14-5.300"/><path d="M18 3v4h-4M6 21v-4h4"/></svg>Restart to Update</div>
+            </div></div>
+            <h3>Updates itself.</h3>
+            <p>New versions download in the background. One click installs them, or they install the next time GatePass quits.</p>
+          </div>
           <div class="card b b-6 oss">
             <div>
               <h3>Read every line.</h3>
@@ -609,6 +650,7 @@
           <details open><summary>Is it really free?</summary><p>Yes. GatePass is free and open source under the MIT license, and it works with a free Apple ID. There's no account with us and no subscription.</p></details>
           <details><summary>Does my device need to be connected for auto-refresh?</summary><p>It needs to be reachable, over USB or on the same Wi‑Fi as your Mac, with GatePass running in the menu bar. Renewal happens whenever the device shows up.</p></details>
           <details><summary>Is my Apple ID safe?</summary><p>Your password is only sent to Apple. Login uses the same private Apple APIs every sideloader uses. If you prefer, sign in with a secondary Apple ID.</p></details>
+          <details><summary>What if I run out of App IDs?</summary><p>A free Apple ID can register 10 new App IDs a week. Add a second Apple ID in GatePass and use it for new installs. Apps you already have keep refreshing with their own Apple ID, and refreshing doesn't use up App IDs.</p></details>
           <details><summary>Where do I get .ipa files?</summary><p>From apps you build yourself or apps you have the right to install, such as open-source projects that publish IPAs.</p></details>
         </div>
       </section>
@@ -625,7 +667,7 @@
         <a class="cta" href="https://github.com/getgatepass/gatepass/releases/latest/download/GatePass.dmg">Download for Mac</a>
       </div>
       <a class="cta outro-cta" href="https://github.com/getgatepass/gatepass/releases/latest/download/GatePass.dmg">Download for Mac</a>
-      <p class="outro-meta">One universal download for Apple silicon and Intel · macOS 14 or later<br><a href="https://github.com/getgatepass/gatepass/releases">All releases</a> · <a href="https://github.com/getgatepass/gatepass">Source</a></p>
+      <p class="outro-meta">Version <span data-version>v0.1.8</span> · One universal download for Apple silicon and Intel · macOS 14 or later<br><a href="https://github.com/getgatepass/gatepass/releases">All releases</a> · <a href="https://github.com/getgatepass/gatepass">Source</a></p>
     </div>
     <a class="outro-hit" href="https://github.com/getgatepass/gatepass/releases/latest/download/GatePass.dmg">Get GatePass for Mac</a>
   </section>

@@ -793,3 +793,13 @@ document.addEventListener('click', e => {
   else scrollTo({ top: y, behavior: reduce ? 'auto' : 'smooth' });
   history.replaceState(null, '', a.getAttribute('href'));
 });
+
+/* version: the newest release from GitHub (the HTML holds the version it shipped with) */
+fetch('https://api.github.com/repos/getgatepass/gatepass/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
+  .then(r => r.ok ? r.json() : null)
+  .then(rel => {
+    const tag = rel && rel.tag_name;
+    if (!tag || !/^v\d+(\.\d+)*$/.test(tag)) return;
+    document.querySelectorAll('[data-version]').forEach(el => { el.textContent = tag; });
+  })
+  .catch(() => {});
