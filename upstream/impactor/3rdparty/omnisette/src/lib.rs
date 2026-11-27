@@ -74,9 +74,10 @@ pub const FALLBACK_ANISETTE_URLS_V3: &[&str] = &[
 ];
 
 /// [GatePass] Identity sent to Apple with server anisette instead of what the servers
-/// advertise (macOS 10.12, which Apple now rejects on /auth: -23782, 403). Same as iloader.
+/// advertise (macOS 10.12, which Apple now rejects on /auth: -23782, 403). Same as iloader,
+/// but spelled "Mac OS X": GSA answers 503 to "macOS" since 2026-11.
 pub const REMOTE_CLIENT_INFO: &str =
-    "<Mac15,7> <macOS;27.0;26A5378j> <com.apple.AuthKit/1 (com.apple.akd/1.0)>";
+    "<Mac15,7> <Mac OS X;27.0;26A5378j> <com.apple.AuthKit/1 (com.apple.akd/1.0)>";
 pub const REMOTE_USER_AGENT: &str = "akd/1.0 CFNetwork/811.5.4";
 
 /// [GatePass] Key under which a remote provider passes the User-Agent that matches

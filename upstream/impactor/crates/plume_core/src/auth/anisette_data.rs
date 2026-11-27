@@ -19,6 +19,14 @@ impl AnisetteData {
         let mut b = AnisetteHeaders::get_anisette_headers_provider(config.clone())?;
         let mut base_headers = b.provider.get_authentication_headers().await?;
         let user_agent = base_headers.remove(omnisette::USER_AGENT_PSEUDO_HEADER);
+        // [GatePass] Since 2026-11 Apple's GSA edge answers 503 to any sign-in whose
+        // X-MMe-Client-Info names the OS "macOS"; the older "Mac OS X" spelling passes.
+        // The header key's case differs between providers, so match it loosely.
+        for (k, v) in base_headers.iter_mut() {
+            if k.eq_ignore_ascii_case("X-Mme-Client-Info") {
+                *v = v.replace("<macOS;", "<Mac OS X;");
+            }
+        }
 
         Ok(AnisetteData {
             base_headers,

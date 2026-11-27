@@ -19,6 +19,11 @@ struct GatePassApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 980, height: 660)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { Task { await Updater.shared.check(userInitiated: true) } }
+            }
+        }
 
         Settings {
             SettingsView()
@@ -38,6 +43,12 @@ struct GatePassApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Appearance.apply(UserDefaults.standard.string(forKey: Pref.appearance) ?? "system")
+        Task { @MainActor in Updater.shared.start() }
+    }
+
+    /// A downloaded update goes in when GatePass quits.
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated { Updater.shared.installOnQuitIfReady() }
     }
 
     /// Keep running in the menu bar after the window closes, so auto-refresh keeps working.

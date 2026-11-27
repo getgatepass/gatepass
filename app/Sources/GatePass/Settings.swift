@@ -8,6 +8,7 @@ enum Pref {
     static let devMode = "devMode"            // Bool, default false
     static let didOnboard = "didOnboard"      // Bool
     static let keychain = "useKeychain"       // Bool, default false
+    static let autoUpdate = "autoUpdate"      // Bool, default true
 
     static func bool(_ key: String, default value: Bool) -> Bool {
         UserDefaults.standard.object(forKey: key) as? Bool ?? value
@@ -63,6 +64,8 @@ struct GeneralSettings: View {
                 Toggle("Open GatePass at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, v in LaunchAtLogin.set(v) }
             }
+
+            UpdateSettings()
 
             Section("Security") {
                 Toggle("Store sign-in in Keychain", isOn: $useKeychain)
@@ -126,5 +129,45 @@ struct AboutSettings: View {
         }
         .frame(maxWidth: .infinity)
         .padding(24)
+    }
+}
+
+struct UpdateSettings: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject private var updater = Updater.shared
+    @AppStorage(Pref.autoUpdate) private var autoUpdate = true
+
+    var body: some View {
+        Section("Updates") {
+            Toggle("Update GatePass automatically", isOn: $autoUpdate)
+            Text("GatePass checks for a new version every few hours and downloads it in the background. It installs when you click Restart to Update, or the next time GatePass quits.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text(status).foregroundStyle(.secondary)
+                Spacer()
+                switch updater.state {
+                case .ready:
+                    Button("Restart to Update") { updater.installAndRelaunch() }.disabled(model.isBusy)
+                case .manual(let r, _):
+                    Button("Download…") { NSWorkspace.shared.open(r.pageURL) }
+                case .checking, .downloading:
+                    ProgressView().controlSize(.small)
+                default:
+                    Button("Check Now") { Task { await updater.check(userInitiated: true) } }
+                }
+            }
+        }
+    }
+
+    private var status: String {
+        switch updater.state {
+        case .idle: return "Version \(updater.currentVersion)"
+        case .checking: return "Checking…"
+        case .upToDate: return "GatePass \(updater.currentVersion) is up to date."
+        case .downloading(let r): return "Downloading \(r.version)…"
+        case .ready(let r, _): return "GatePass \(r.version) is ready to install."
+        case .manual(_, let reason): return reason
+        case .failed(let message): return message
+        }
     }
 }

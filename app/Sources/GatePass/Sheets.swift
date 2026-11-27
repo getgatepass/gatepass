@@ -214,6 +214,8 @@ struct MenuBarContent: View {
             }
         }
 
+        UpdateMenuItem()
+
         Divider()
         Button("Open GatePass") {
             openWindow(id: "main")
@@ -222,5 +224,25 @@ struct MenuBarContent: View {
         .keyboardShortcut("o")
         Button("Quit") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
+    }
+}
+
+/// Menu bar entry for a pending update.
+struct UpdateMenuItem: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject private var updater = Updater.shared
+
+    var body: some View {
+        switch updater.state {
+        case .ready(let r, _):
+            Divider()
+            Button("Restart to Update to \(r.version)") { updater.installAndRelaunch() }
+                .disabled(model.isBusy)
+        case .manual(let r, _):
+            Divider()
+            Button("Download GatePass \(r.version)…") { NSWorkspace.shared.open(r.pageURL) }
+        default:
+            EmptyView()
+        }
     }
 }

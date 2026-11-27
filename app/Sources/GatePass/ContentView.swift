@@ -88,6 +88,8 @@ struct HeaderBar: View {
 
             Spacer()
 
+            UpdateButton()
+
             SettingsLink {
                 Image(systemName: "gearshape")
                     .font(.system(size: 15, weight: .medium))
@@ -971,6 +973,50 @@ struct PillButtonStyle: ButtonStyle {
             .opacity(enabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+/// Shown in the header only while a newer GatePass exists.
+struct UpdateButton: View {
+    @EnvironmentObject var model: AppModel
+    @ObservedObject private var updater = Updater.shared
+
+    var body: some View {
+        switch updater.state {
+        case .downloading(let r):
+            HStack(spacing: 7) {
+                ProgressView().controlSize(.small)
+                Text("Downloading \(r.version)…").font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12).frame(height: 34)
+            .background(Capsule().fill(Theme.card))
+        case .ready(let r, _):
+            Button { updater.installAndRelaunch() } label: {
+                Label("Restart to Update", systemImage: "arrow.down.circle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12).frame(height: 34)
+                    .background(Capsule().fill(Theme.accentGradient))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.isBusy)
+            .opacity(model.isBusy ? 0.5 : 1)
+            .help(model.isBusy ? "Waiting for the current job to finish" : "Install GatePass \(r.version) and reopen")
+        case .manual(let r, let reason):
+            Button { NSWorkspace.shared.open(r.pageURL) } label: {
+                Label("GatePass \(r.version) available", systemImage: "arrow.down.circle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 12).frame(height: 34)
+                    .background(Capsule().fill(Theme.card))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help(reason)
+        default:
+            EmptyView()
+        }
     }
 }
 

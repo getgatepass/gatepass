@@ -223,6 +223,8 @@ fn friendly_error(e: &anyhow::Error) -> String {
         "This Mac doesn't give GatePass Apple's sign-in identity (macOS 27 blocks it for apps like GatePass), so GatePass signed in through a public anisette server. Apple refused to send a verification code this time. Wait a few minutes and try again. If it keeps happening, please send the developer a screenshot of this whole message."
     } else if lower.contains("2fa") && lower.contains("403") {
         "Apple refused to send a verification code. Your password is correct — try again in a few minutes. If it keeps happening, check whether your Apple ID uses security keys; those aren't supported."
+    } else if lower.contains("503") && lower.contains("grandslam") {
+        "Apple's sign-in server is temporarily refusing requests. This has nothing to do with your password. Wait a few minutes and try again. If it keeps happening, please send the developer a screenshot of this whole message."
     } else if lower.contains("429") {
         "Too many sign-in attempts. Apple has temporarily blocked requests — wait 10–15 minutes."
     } else if lower.contains("-20101") || lower.contains("-20970") || lower.contains("entered incorrectly") {

@@ -10,6 +10,7 @@ A dead-simple, open-source sideloader for macOS. Drop an `.ipa`, it lands on you
 - **Auto-refresh**: lives in the menu bar; when a device with apps due for renewal appears, it renews them and notifies you
 - "My apps" with days-left countdown, one-click refresh
 - Recent IPAs and a browsable IPA folder
+- **Auto-update**: checks GitHub releases every few hours, downloads the new version in the background, checks it is signed with the same certificate, and installs on "Restart to Update" or when GatePass quits
 
 ## Layout
 
