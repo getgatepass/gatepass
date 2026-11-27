@@ -30,7 +30,7 @@ struct LoginSheet: View {
             Image(systemName: "apple.logo")
                 .font(.system(size: 34))
             VStack(spacing: 4) {
-                Text("Sign in with Apple ID").font(.system(size: 18, weight: .bold))
+                Text(model.accounts.isEmpty ? "Sign in with Apple ID" : "Add Apple ID").font(.system(size: 18, weight: .bold))
                 Text("Used only to sign your apps. Your password is never saved — only Apple's session token is kept on this Mac.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
@@ -78,6 +78,7 @@ struct LoginSheet: View {
             HStack {
                 Button("Cancel") {
                     model.loginError = nil
+                    model.loginEmail = ""
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
@@ -94,7 +95,10 @@ struct LoginSheet: View {
         }
         .padding(28)
         .frame(width: 380)
-        .onAppear { focus = .email }
+        .onAppear {
+            if !model.loginEmail.isEmpty { email = model.loginEmail }
+            focus = email.isEmpty ? .email : .password
+        }
     }
 
     private func submit() {
@@ -207,7 +211,11 @@ struct MenuBarContent: View {
         if !model.trackedApps.isEmpty {
             Divider()
             ForEach(model.trackedApps.prefix(8)) { app in
-                Button("\(app.name) — \(app.isExpired ? "expired" : "\(app.daysLeft ?? 0) d")") {
+                Button("\(app.name) — \(app.isExpired ? "expired" : "\(app.daysLeft ?? 0) d")\(app.accountSignedIn ? "" : " · Apple ID signed out")") {
+                    if !app.accountSignedIn {
+                        openWindow(id: "main")
+                        NSApp.activate(ignoringOtherApps: true)
+                    }
                     Task { await model.refresh(app) }
                 }
                 .disabled(!model.isConnected(app.deviceUDID) || model.isBusy)

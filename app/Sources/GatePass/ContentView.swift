@@ -32,6 +32,7 @@ struct ContentView: View {
         .sheet(isPresented: Binding(get: { !didOnboard }, set: { if !$0 { didOnboard = true } })) { WelcomeView() }
         .sheet(isPresented: $model.showPairTV) { PairAppleTVSheet() }
         .sheet(item: $model.advancedFile) { file in AdvancedInstallSheet(file: file) }
+        .sheet(item: $model.resignApp) { app in ResignSheet(app: app) }
         .sheet(item: twoFactorBinding) { prompt in TwoFactorSheet(prompt: prompt) }
         .alert(confirmTitle, isPresented: confirmPresented, presenting: model.prompt) { prompt in
             Button("Continue", role: .destructive) { prompt.respond("yes") }
@@ -192,21 +193,15 @@ struct AccountPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if let account = model.account {
-                HStack(spacing: 12) {
-                    Avatar(account: account, size: 46)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(account.firstName.isEmpty ? "Apple ID" : account.firstName)
-                            .font(.system(size: 15, weight: .bold))
-                        Text(account.email).font(.system(size: 12)).foregroundStyle(.secondary)
-                        Text("Free account").font(.system(size: 11)).foregroundStyle(.tertiary)
-                    }
-                }
-            }
+            AccountList()
+                .environmentObject(model)
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text("Signatures this week").font(.system(size: 13, weight: .semibold))
+                    if model.accounts.count > 1, let a = model.account {
+                        Text(a.displayName).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                    }
                     Spacer()
                     if model.quotaLoading { ProgressView().controlSize(.mini) }
                 }
@@ -254,9 +249,6 @@ struct AccountPopover: View {
                 .onChange(of: launchAtLogin) { _, v in LaunchAtLogin.set(v) }
 
             HStack {
-                Button("Sign Out", role: .destructive) { Task { await model.logout() } }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.red)
                 Spacer()
                 Button { Task { await model.loadQuota() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
                     .buttonStyle(.borderless)
@@ -809,6 +801,7 @@ struct TrackedAppRow: View {
                 }
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+                AppleIDLabel(app: app)
             }
             Spacer()
             if hover {
@@ -825,6 +818,7 @@ struct TrackedAppRow: View {
         .contextMenu {
             Button("Refresh Now") { Task { await model.refresh(app) } }
                 .disabled(!model.isConnected(app.deviceUDID))
+            Button("Refresh with Another Apple ID…") { model.resignApp = app }
             Divider()
             Button("Stop Tracking", role: .destructive) { Task { await model.forget(app) } }
         }

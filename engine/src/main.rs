@@ -42,11 +42,20 @@ enum Command {
     },
     /// Show saved accounts
     Accounts,
+    /// Switch to another saved account (new installs use it)
+    Select {
+        #[arg(long)]
+        email: String,
+    },
     /// Diagnostics: obtain sign-in identity (anisette) and print which header names came back
     #[command(hide = true)]
     AnisetteCheck,
     /// Free-account limits: App IDs left this week, active apps per device
-    Quota,
+    Quota {
+        /// Another saved account than the selected one
+        #[arg(long)]
+        email: Option<String>,
+    },
     /// Read name/bundle id/version/icon from an .ipa without installing
     IpaInfo {
         #[arg(long)]
@@ -76,6 +85,9 @@ enum Command {
         /// Only this bundle id
         #[arg(long)]
         bundle_id: Option<String>,
+        /// Sign with this saved Apple ID instead of the one that installed the app
+        #[arg(long)]
+        account: Option<String>,
     },
     /// Stop tracking an app for refresh
     Forget {
@@ -170,8 +182,9 @@ async fn main() {
         Command::Login => login().await,
         Command::Logout { email } => logout(email).await,
         Command::Accounts => accounts().await,
+        Command::Select { email } => select(email).await,
         Command::AnisetteCheck => anisette_check().await,
-        Command::Quota => quota().await,
+        Command::Quota { email } => quota(email).await,
         Command::IpaInfo { ipa, icon_out } => install::ipa_info(ipa, icon_out),
         Command::Install { ipa, udid, opts } => install::install(ipa, udid, opts).await,
         Command::Apps => refresh::list_apps().await,
@@ -179,7 +192,8 @@ async fn main() {
             udid,
             force,
             bundle_id,
-        } => refresh::refresh(udid, force, bundle_id).await,
+            account,
+        } => refresh::refresh(udid, force, bundle_id, account).await,
         Command::Forget { udid, bundle_id } => refresh::forget(udid, bundle_id).await,
         Command::PairScan { seconds } => pairing::scan(seconds).await,
         Command::Pair { host, port } => pairing::pair(host, port).await,
@@ -223,6 +237,12 @@ fn friendly_error(e: &anyhow::Error) -> String {
         "This Mac doesn't give GatePass Apple's sign-in identity (macOS 27 blocks it for apps like GatePass), so GatePass signed in through a public anisette server. Apple refused to send a verification code this time. Wait a few minutes and try again. If it keeps happening, please send the developer a screenshot of this whole message."
     } else if lower.contains("2fa") && lower.contains("403") {
         "Apple refused to send a verification code. Your password is correct — try again in a few minutes. If it keeps happening, check whether your Apple ID uses security keys; those aren't supported."
+    } else if lower.contains("9401") || lower.contains("is not available. please enter a different string") {
+        "Apple won't let this Apple ID use the app's identifier, which usually means another Apple ID already uses it. Turn on Developer mode in Settings, then install with Advanced… and give the app a different bundle ID."
+    } else if lower.contains("maximum number of installed apps") || lower.contains("free developer profile") {
+        "This device already has as many apps from free Apple IDs as iOS allows. Remove one of them from the device (or stop refreshing it in GatePass), then try again."
+    } else if lower.contains("isn't signed in") {
+        ""
     } else if lower.contains("503") && lower.contains("grandslam") {
         "Apple's sign-in server is temporarily refusing requests. This has nothing to do with your password. Wait a few minutes and try again. If it keeps happening, please send the developer a screenshot of this whole message."
     } else if lower.contains("429") {
@@ -325,7 +345,31 @@ async fn logout(email: Option<String>) -> Result<()> {
             .email()
             .clone(),
     };
+    let was_selected = store.selected_account().map(|a| a.email() == &email).unwrap_or(false);
     store.accounts_remove(&email).await?;
+    // Removing the selected account switches to another signed-in one, if there is one.
+    if was_selected {
+        let next = store
+            .accounts()
+            .values()
+            .filter(|a| !a.xcode_gs_token().is_empty())
+            .map(|a| a.email().clone())
+            .min();
+        if let Some(next) = next {
+            store.account_select(&next).await?;
+        }
+    }
+    emit(json!({ "type": "done" }));
+    Ok(())
+}
+
+async fn select(email: String) -> Result<()> {
+    let mut store = load_store().await?;
+    match store.get_account(&email) {
+        Some(a) if !a.xcode_gs_token().is_empty() => {}
+        _ => return Err(anyhow!("Apple ID {email} isn't signed in. Sign in to it first.")),
+    }
+    store.account_select(&email).await?;
     emit(json!({ "type": "done" }));
     Ok(())
 }
@@ -356,12 +400,15 @@ async fn accounts() -> Result<()> {
 }
 
 /// Apple's free-account limits: 10 new App IDs per rolling 7 days, 3 active sideloaded apps per device.
-async fn quota() -> Result<()> {
+async fn quota(email: Option<String>) -> Result<()> {
     let store = load_store().await?;
-    let account = store
-        .selected_account()
-        .ok_or_else(|| anyhow!("No account selected"))?
-        .clone();
+    let account = match &email {
+        Some(e) => store.get_account(e).ok_or_else(|| anyhow!("No account {e}"))?.clone(),
+        None => store
+            .selected_account()
+            .ok_or_else(|| anyhow!("No account selected"))?
+            .clone(),
+    };
     let (session, team_id) = install::session_for(&account).await?;
     let resp = session.qh_list_app_ids(&team_id).await?;
     let used = resp.app_ids.len() as i64;

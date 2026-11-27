@@ -99,12 +99,52 @@ codesign --force --timestamp=none --sign "$SIGN_ID" "$APP"
 if [ "${1:-}" = "--dmg" ]; then
   echo "▸ Creating DMG…"
   STAGE="$OUT/dmg-stage"
-  rm -rf "$STAGE" "$OUT/GatePass.dmg"
-  mkdir -p "$STAGE"
+  RW="$OUT/GatePass-rw.dmg"
+  VOL="GatePass"
+  rm -rf "$STAGE" "$RW" "$OUT/GatePass.dmg"
+  mkdir -p "$STAGE/.background"
   cp -R "$APP" "$STAGE/"
   ln -s /Applications "$STAGE/Applications"
-  hdiutil create -quiet -volname "GatePass" -srcfolder "$STAGE" -ov -format UDZO "$OUT/GatePass.dmg"
+  cp "$ROOT/assets/dmg/background.tiff" "$STAGE/.background/background.tiff"
+  cp "$ROOT/assets/AppIcon.icns" "$STAGE/.VolumeIcon.icns"
+  if [ -d "/Volumes/$VOL" ]; then
+    echo "✗ /Volumes/$VOL is mounted (an older GatePass.dmg?). Eject it and run again." >&2
+    exit 1
+  fi
+  hdiutil create -quiet -volname "$VOL" -srcfolder "$STAGE" -ov -format UDRW -fs HFS+ "$RW"
   rm -rf "$STAGE"
+  DEV="$(hdiutil attach -readwrite -noverify -noautoopen "$RW" | awk '/Apple_HFS/ {print $1}')"
+  # The window Finder shows when the DMG opens: background, size, icon spots (they match the
+  # wells in assets/dmg/background.html).
+  osascript <<APPLESCRIPT
+tell application "Finder"
+  tell disk "$VOL"
+    open
+    set current view of container window to icon view
+    set toolbar visible of container window to false
+    set statusbar visible of container window to false
+    set bounds of container window to {200, 120, 860, 548}
+    set opts to the icon view options of container window
+    set arrangement of opts to not arranged
+    set icon size of opts to 128
+    set text size of opts to 13
+    set background picture of opts to file ".background:background.tiff"
+    set position of item "GatePass.app" of container window to {170, 200}
+    set position of item "Applications" of container window to {490, 200}
+    close
+    open
+    delay 1
+    close
+  end tell
+end tell
+APPLESCRIPT
+  SetFile -c icnC "/Volumes/$VOL/.VolumeIcon.icns" 2>/dev/null || true
+  SetFile -a C "/Volumes/$VOL"
+  SetFile -a V "/Volumes/$VOL/.VolumeIcon.icns" "/Volumes/$VOL/.background"
+  sync
+  hdiutil detach -quiet "$DEV"
+  hdiutil convert -quiet "$RW" -format UDZO -imagekey zlib-level=9 -o "$OUT/GatePass.dmg"
+  rm -f "$RW"
   echo "✓ $OUT/GatePass.dmg"
 fi
 

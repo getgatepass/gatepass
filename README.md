@@ -5,10 +5,11 @@ A dead-simple, open-source sideloader for macOS. Drop an `.ipa`, it lands on you
 ## Features
 
 - Sign in once with your own (free) Apple ID
+- **Several Apple IDs**: switch with one click; each app keeps refreshing with the Apple ID that installed it, and can be moved to another one
 - Drag & drop or pick an `.ipa` / `.tipa`
 - iPhone, iPad and Apple TV, USB or Wi-Fi
 - **Auto-refresh**: lives in the menu bar; when a device with apps due for renewal appears, it renews them and notifies you
-- "My apps" with days-left countdown, one-click refresh
+- "My apps" with days-left countdown, the Apple ID each app uses, one-click refresh
 - Recent IPAs and a browsable IPA folder
 - **Auto-update**: checks GitHub releases every few hours, downloads the new version in the background, checks it is signed with the same certificate, and installs on "Restart to Update" or when GatePass quits
 

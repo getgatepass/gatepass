@@ -246,6 +246,11 @@ impl TvConn {
         Ok(())
     }
 
+    pub async fn uninstall_app(&mut self, bundle_id: &str) -> Result<()> {
+        let mut ip = InstallationProxyClient::connect_rsd(&mut self.adapter, &mut self.rsd).await?;
+        Ok(ip.uninstall(bundle_id, None).await?)
+    }
+
     pub async fn user_apps(&mut self) -> Result<Vec<(String, String)>> {
         let mut ip = InstallationProxyClient::connect_rsd(&mut self.adapter, &mut self.rsd).await?;
         let apps = ip.get_apps(Some("User"), None).await?;

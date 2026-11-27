@@ -20,6 +20,16 @@ struct Activity: Equatable {
 @MainActor
 final class AppModel: ObservableObject {
     @Published var account: Account?
+    /// Every signed-in Apple ID; `account` is the one new installs use.
+    @Published var accounts: [Account] = []
+    /// The app the "Refresh with another Apple ID" sheet is open for.
+    @Published var resignApp: TrackedApp?
+    /// After signing in from that sheet, it opens again for this app.
+    private var resignAfterLogin: TrackedApp?
+    /// Prefilled in the sign-in sheet ("Sign in again" for a signed-out Apple ID).
+    @Published var loginEmail = ""
+    /// Apps already announced as "Apple ID signed out", so the notification comes once.
+    private var announcedSignedOut = Set<String>()
     @Published var devices: [Device] = []
     @Published var selectedDeviceID: String?
     @Published var trackedApps: [TrackedApp] = []
@@ -80,10 +90,13 @@ final class AppModel: ObservableObject {
     func reloadAccount() async {
         guard let result = try? await Engine.run(["accounts"]),
               let list = result["accounts"] as? [JSON] else { return }
-        let selected = list.first { ($0["selected"] as? Bool) == true } ?? list.first
-        account = selected.map {
-            Account(email: $0["email"] as? String ?? "", firstName: $0["firstName"] as? String ?? "")
-        }
+        let all = list.map {
+            Account(email: $0["email"] as? String ?? "", firstName: $0["firstName"] as? String ?? "",
+                    teamId: $0["teamId"] as? String ?? "", selected: ($0["selected"] as? Bool) == true)
+        }.sorted { $0.email < $1.email }
+        if all != accounts { withAnimation(.snappy) { accounts = all } }
+        let selected = all.first { $0.selected } ?? all.first
+        if selected != account { account = selected }
     }
 
     func reloadDevices() async {
@@ -117,7 +130,9 @@ final class AppModel: ObservableObject {
                     bundleId: a["bundleId"] as? String ?? "",
                     expiresAt: DateParsing.parse(a["expiresAt"]),
                     refreshAt: DateParsing.parse(a["refreshAt"]),
-                    due: a["due"] as? Bool ?? false
+                    due: a["due"] as? Bool ?? false,
+                    account: a["account"] as? String,
+                    accountSignedIn: a["accountSignedIn"] as? Bool ?? true
                 ))
             }
         }
@@ -136,9 +151,15 @@ final class AppModel: ObservableObject {
         let ok = await perform(title: "Signing in", args: ["login"], input: String(decoding: creds, as: UTF8.self))
         if ok {
             await reloadAccount()
+            await reloadApps()
             showLogin = false
+            loginEmail = ""
             Task { await loadQuota() }
             showToast("Signed in ✓")
+            if let app = resignAfterLogin {
+                resignAfterLogin = nil
+                resignApp = trackedApps.first { $0.id == app.id } ?? app
+            }
         } else {
             loginError = errorMessage ?? "Sign-in failed."
             errorMessage = nil
@@ -159,11 +180,49 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func logout() async {
-        guard let account else { return }
-        _ = await perform(title: "Signing out", args: ["logout", "--email", account.email])
-        self.account = nil
+    /// Quota of any signed-in Apple ID (for the sheet that picks one).
+    func quota(for email: String) async -> Quota? {
+        guard let r = try? await Engine.run(["quota", "--email", email]) else { return nil }
+        return Quota(json: r)
+    }
+
+    /// Makes another signed-in Apple ID the one new installs use. Apps keep their own Apple ID.
+    func switchAccount(to target: Account) async {
+        guard target.email != account?.email else { return }
+        guard !busy else { errorMessage = "Already working on something — wait a moment."; return }
+        do {
+            _ = try await Engine.run(["select", "--email", target.email])
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
         quota = nil
+        await reloadAccount()
+        showToast("New installs now use \(target.email)")
+        await loadQuota()
+    }
+
+    /// Opens the sign-in sheet for another Apple ID (the current ones stay signed in).
+    func addAccount(email: String = "", thenResign app: TrackedApp? = nil) {
+        loginError = nil
+        loginEmail = email
+        resignAfterLogin = app
+        showLogin = true
+    }
+
+    /// Apps on this Mac that refresh with this Apple ID.
+    func apps(of email: String) -> [TrackedApp] {
+        trackedApps.filter { $0.account == email }
+    }
+
+    func logout(_ target: Account? = nil) async {
+        guard let target = target ?? account else { return }
+        _ = await perform(title: "Signing out", args: ["logout", "--email", target.email])
+        quota = nil
+        account = nil
+        await reloadAccount()
+        await reloadApps()
+        if account != nil { await loadQuota() }
     }
 
     // MARK: Install / refresh
@@ -232,7 +291,9 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Refreshes with the app's own Apple ID. If that one is signed out, asks which to use.
     func refresh(_ app: TrackedApp) async {
+        guard app.accountSignedIn else { resignApp = app; return }
         let ok = await perform(
             title: "Refreshing \(app.name)",
             args: ["refresh", "--udid", app.deviceUDID, "--force", "--bundle-id", app.bundleId]
@@ -243,9 +304,36 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Signs the app with another Apple ID. Another team means new identifiers, so iOS gets
+    /// a different app: the old one is removed (with its data) and the new one installed.
+    @discardableResult
+    func refresh(_ app: TrackedApp, with target: Account) async -> Bool {
+        let ok = await perform(
+            title: "Moving \(app.name) to \(target.email)",
+            args: ["refresh", "--udid", app.deviceUDID, "--force", "--bundle-id", app.bundleId, "--account", target.email]
+        )
+        if ok {
+            notify("Moved", "\(app.name) is now signed with \(target.email) on \(app.deviceName).")
+            showToast("\(app.name) now uses \(target.email) ✓")
+            announcedSignedOut.remove(app.id)
+            await reloadApps()
+            if target.email == account?.email { await loadQuota() }
+        }
+        return ok
+    }
+
     func refreshAll(on udid: String) async {
-        let ok = await perform(title: "Refreshing all apps", args: ["refresh", "--udid", udid, "--force"])
-        if ok { showToast("All apps refreshed ✓"); await reloadApps() }
+        var skipped = 0
+        let ok = await perform(title: "Refreshing all apps", args: ["refresh", "--udid", udid, "--force"]) {
+            skipped = ($0["skipped"] as? [Any])?.count ?? 0
+        }
+        guard ok else { return }
+        await reloadApps()
+        if skipped > 0 {
+            showToast("Refreshed — \(skipped) app\(skipped == 1 ? "" : "s") skipped: Apple ID signed out")
+        } else {
+            showToast("All apps refreshed ✓")
+        }
     }
 
     func forget(_ app: TrackedApp) async {
@@ -294,9 +382,16 @@ final class AppModel: ObservableObject {
     private func autoRefreshIfNeeded() async {
         guard !busy, account != nil, Pref.bool(Pref.autoRefresh, default: true) else { return }
         lastAutoCheck = .now
-        let dueDevices = Set(trackedApps.filter { $0.due && isConnected($0.deviceUDID) }.map(\.deviceUDID))
+        // Apps whose Apple ID is signed out wait for the person: moving them deletes their data.
+        for app in trackedApps where app.due && !app.accountSignedIn && !announcedSignedOut.contains(app.id) {
+            announcedSignedOut.insert(app.id)
+            notify("\(app.name) can't refresh",
+                   "\(app.account ?? "Its Apple ID") isn't signed in. Open GatePass to sign in again or pick another Apple ID.")
+        }
+        let dueApps = trackedApps.filter { $0.due && $0.accountSignedIn && isConnected($0.deviceUDID) }
+        let dueDevices = Set(dueApps.map(\.deviceUDID))
         for udid in dueDevices {
-            let names = trackedApps.filter { $0.deviceUDID == udid && $0.due }.map(\.name)
+            let names = dueApps.filter { $0.deviceUDID == udid }.map(\.name)
             let deviceName = devices.first { $0.udid == udid }?.name ?? "device"
             let ok = await perform(title: "Auto-refresh on \(deviceName)", args: ["refresh", "--udid", udid], quiet: true)
             if ok {

@@ -83,6 +83,47 @@ pub fn refresh_date(bundle_dir: &Path) -> Option<(DateTime<Utc>, DateTime<Utc>)>
     Some((expires, expires - chrono::Duration::days(2)))
 }
 
+/// Claim the app's own identifier in this team before the rest is registered. Apple answers
+/// 9401 ("is not available") when another team holds it, for example after another Apple ID
+/// refreshed the app. The app then becomes "<identifier>.gp", in every nested bundle too.
+/// Returns the identifier in use.
+pub async fn claim_app_id(session: &DeveloperSession, team_id: &String, bundle: &Bundle) -> Result<String> {
+    let id = bundle
+        .get_bundle_identifier()
+        .ok_or_else(|| anyhow!("The app has no bundle identifier"))?;
+    let name = bundle.get_bundle_name().unwrap_or_else(|| id.clone());
+    match session.qh_ensure_app_id(team_id, &name, &id).await {
+        Ok(_) => Ok(id),
+        Err(plume_core::Error::DeveloperApi { result_code: 9401, .. }) if !id.ends_with(".gp") => {
+            let alternative = format!("{id}.gp");
+            log::warn!("App ID {id} is not available, using {alternative}");
+            rename_bundle_id(bundle, &id, &alternative)?;
+            session.qh_ensure_app_id(team_id, &name, &alternative).await?;
+            Ok(alternative)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Replace an app's identifier (and its extensions' prefix) in every nested bundle.
+pub fn rename_bundle_id(bundle: &Bundle, old: &str, new: &str) -> Result<()> {
+    for b in bundle.collect_bundles_sorted()? {
+        if b.bundle_type().should_have_entitlements() {
+            b.set_matching_identifier(old, new)?;
+        }
+    }
+    Ok(())
+}
+
+/// Team that signed a stored app, from its provisioning profile.
+pub fn profile_team(bundle_dir: &Path) -> Option<String> {
+    let prov = MobileProvision::load_with_path(bundle_dir.join("embedded.mobileprovision")).ok()?;
+    prov.entitlements()
+        .get("com.apple.developer.team-identifier")
+        .and_then(|v| v.as_string())
+        .map(str::to_string)
+}
+
 /// Advanced options (shown in the app only when Developer mode is on).
 #[derive(clap::Args, Default, Clone, Debug)]
 pub struct InstallOpts {
@@ -201,6 +242,9 @@ pub async fn install(ipa: PathBuf, udid: Option<String>, opts: InstallOpts) -> R
         let mut signer = Signer::new(Some(ident), options);
         progress("Signing…", 50);
         signer.modify_bundle(&bundle, &Some(team_id.clone())).await?;
+        if signer.options.mode == SignerMode::Pem {
+            claim_app_id(&session, &team_id, &bundle).await?;
+        }
         signer.register_bundle(&bundle, &session, &team_id, false).await?;
         signer.sign_bundle(&bundle).await?;
     } else {
@@ -275,6 +319,7 @@ async fn save_for_refresh(
         name: bundle.get_name(),
         bundle_id: bundle_id.clone(),
         scheduled_refresh,
+        account: Some(account.email().clone()),
     };
 
     let mut rd = store

@@ -527,6 +527,7 @@ pub(crate) async fn run_installation(
                         bundle_id: package_file.get_bundle_identifier(),
                         path: dest_path.clone(),
                         scheduled_refresh,
+                        account: None,
                     };
 
                     let mut refresh_device = store

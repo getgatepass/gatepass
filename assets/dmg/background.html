@@ -1,0 +1,82 @@
+<!doctype html>
+<!-- Background of the GatePass.dmg window (660×400). Render with scripts/make-dmg-background.sh.
+     Icons sit at x=170 and x=490, y=200 (centers); keep those spots clear. -->
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@500&display=block" rel="stylesheet">
+<style>
+  :root { --bg: #050507; --text: #f5f5f7; --muted: #a3a3ad; --dim: #71717c; --accent: #22cc8f; --teal: #0891b3; }
+  * { margin: 0; box-sizing: border-box; }
+  html, body { width: 660px; height: 400px; overflow: hidden; background: var(--bg); }
+  body { position: relative; font-family: "Inter Tight", system-ui, sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
+
+  .glow { position: absolute; inset: 0;
+    background:
+      radial-gradient(60% 75% at 8% 108%, rgba(34,204,143,.38), transparent 62%),
+      radial-gradient(55% 70% at 98% -12%, rgba(8,145,179,.42), transparent 60%),
+      radial-gradient(40% 40% at 50% 52%, rgba(34,204,143,.07), transparent 70%); }
+  .grid { position: absolute; inset: 0; opacity: .55;
+    background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 30px 30px; background-position: -1px -1px;
+    -webkit-mask-image: radial-gradient(70% 70% at 50% 50%, #000 30%, transparent 85%); }
+  .vignette { position: absolute; inset: 0; background: radial-gradient(120% 95% at 50% 45%, transparent 55%, rgba(0,0,0,.55) 100%); }
+
+  header { position: absolute; top: 34px; left: 0; right: 0; text-align: center; }
+  .eyebrow { font: 500 10px/1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: .22em; color: var(--accent); text-transform: uppercase; }
+  h1 { margin-top: 12px; font-weight: 600; font-size: 30px; letter-spacing: -.02em; line-height: 1; }
+  h1 em { font-family: "Instrument Serif", Georgia, serif; font-style: italic; font-weight: 400; font-size: 36px; letter-spacing: 0;
+    background: linear-gradient(100deg, #5be3ad, var(--accent) 45%, #1bb3c9); -webkit-background-clip: text; color: transparent; padding-right: 2px; }
+
+  /* Soft wells under the two icons. */
+  .well { position: absolute; top: 200px; width: 168px; height: 168px; margin: -84px 0 0 -84px; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(255,255,255,.07), rgba(255,255,255,.02) 70%, transparent);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.07); }
+  .well.app { left: 170px; }
+  .well.apps { left: 490px; }
+
+  /* Finder draws the icon names in black; these pills (the site's button style) keep them readable. */
+  .tag { position: absolute; top: 284px; height: 24px; margin-top: -12px; border-radius: 999px;
+    background: linear-gradient(180deg, #3fe0a6, var(--accent)); box-shadow: 0 0 0 1px rgba(255,255,255,.18) inset, 0 6px 18px rgba(34,204,143,.25); }
+  .tag.app { left: 170px; width: 96px; margin-left: -48px; }
+  .tag.apps { left: 490px; width: 116px; margin-left: -58px; background: linear-gradient(180deg, #f5f5f7, #d9dbe0); box-shadow: 0 0 0 1px rgba(255,255,255,.3) inset, 0 6px 18px rgba(0,0,0,.35); }
+
+  svg.arrow { position: absolute; left: 262px; top: 172px; width: 136px; height: 56px; overflow: visible; }
+
+  footer { position: absolute; bottom: 26px; left: 0; right: 0; text-align: center; font-size: 12px; color: var(--muted); letter-spacing: -.005em; }
+  footer b { color: var(--text); font-weight: 500; }
+</style>
+</head>
+<body>
+  <div class="glow"></div>
+  <div class="grid"></div>
+  <div class="vignette"></div>
+
+  <header>
+    <div class="eyebrow">GatePass · Install</div>
+    <h1>Drag it to <em>Applications</em></h1>
+  </header>
+
+  <div class="well app"></div>
+  <div class="well apps"></div>
+  <div class="tag app"></div>
+  <div class="tag apps"></div>
+
+  <svg class="arrow" viewBox="0 0 136 56" aria-hidden="true">
+    <defs>
+      <linearGradient id="g" x1="0" x2="1" y1="0" y2="0">
+        <stop offset="0" stop-color="#22cc8f" stop-opacity=".25"/>
+        <stop offset=".55" stop-color="#22cc8f"/>
+        <stop offset="1" stop-color="#1bb3c9"/>
+      </linearGradient>
+      <filter id="blur" x="-20%" y="-80%" width="140%" height="260%"><feGaussianBlur stdDeviation="4"/></filter>
+    </defs>
+    <path d="M6 34 C 44 8, 86 8, 122 30" fill="none" stroke="url(#g)" stroke-width="6" stroke-linecap="round" filter="url(#blur)" opacity=".55"/>
+    <path d="M6 34 C 44 8, 86 8, 122 30" fill="none" stroke="url(#g)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="1 9"/>
+    <path d="M110 20 L 124 31 L 107 35" fill="none" stroke="#1bb3c9" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+
+  <footer>Then open <b>GatePass</b> from Applications and plug in your iPhone.</footer>
+</body>
+</html>

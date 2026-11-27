@@ -1,8 +1,13 @@
 import Foundation
 
-struct Account: Equatable {
+struct Account: Equatable, Identifiable, Hashable {
     let email: String
     let firstName: String
+    var teamId: String = ""
+    var selected: Bool = false
+
+    var id: String { email }
+    var displayName: String { firstName.isEmpty ? "Apple ID" : firstName }
 
     var initials: String {
         let source = firstName.isEmpty ? email : firstName
@@ -52,6 +57,10 @@ struct TrackedApp: Identifiable, Equatable {
     let expiresAt: Date?
     let refreshAt: Date?
     let due: Bool
+    /// Apple ID that signs this app on refresh (nil = unknown, e.g. its Apple ID was removed).
+    var account: String? = nil
+    /// That Apple ID is signed in here, so the app can be refreshed with it.
+    var accountSignedIn: Bool = true
 
     var id: String { deviceUDID + "/" + bundleId }
 

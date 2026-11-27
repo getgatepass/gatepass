@@ -270,13 +270,31 @@ impl Signer {
 
                 let macho = plume_core::MachO::new(&bundle_executable_path)?;
 
-                let id = sub_bundle
+                let mut id = sub_bundle
                     .get_bundle_identifier()
                     .ok_or_else(|| Error::Other("Failed to get bundle identifier.".into()))?;
 
                 let name = sub_bundle.get_bundle_name().unwrap_or_else(|| id.clone());
 
-                session.qh_ensure_app_id(&team_id, &name, &id).await?;
+                match session.qh_ensure_app_id(&team_id, &name, &id).await {
+                    // [GatePass] Apple sometimes refuses one extension's identifier with 9401
+                    // ("is not available"), although the team doesn't have it. An extension only
+                    // needs the app's identifier as its prefix, so register it under
+                    // "<identifier>.gp" and write that into the extension before signing.
+                    // The name is fixed so a later install or refresh finds the same App ID.
+                    Err(plume_core::Error::DeveloperApi { result_code: 9401, .. })
+                        if *sub_bundle.bundle_type() == BundleType::AppExtension =>
+                    {
+                        let alternative = format!("{id}.gp");
+                        log::warn!("App ID {id} is not available, using {alternative} for this extension");
+                        sub_bundle.set_info_plist_key("CFBundleIdentifier", alternative.clone())?;
+                        id = alternative;
+                        session.qh_ensure_app_id(&team_id, &name, &id).await?;
+                    }
+                    other => {
+                        other?;
+                    }
+                }
 
                 let app_id_id = session
                     .qh_get_app_id(&team_id, &id)

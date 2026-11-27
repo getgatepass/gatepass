@@ -21,6 +21,10 @@ pub struct RefreshApp {
     #[serde(default)]
     pub bundle_id: Option<String>,
     pub scheduled_refresh: DateTime<Utc>, // the scheduled refresh time will happen a day before expiration
+    /// [GatePass] Apple ID (email) that installed this app. Absent for apps tracked before
+    /// 0.1.8, which fall back to the team in their provisioning profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
 }
 
 // to support autorefreshing of apps we need to store a modified copy of the app first

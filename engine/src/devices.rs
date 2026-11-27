@@ -194,6 +194,23 @@ impl Target {
         }
     }
 
+    pub async fn uninstall_app(&mut self, bundle_id: &str) -> Result<()> {
+        match self {
+            Target::Mux(d) => {
+                use idevice::installation_proxy::InstallationProxyClient;
+                let raw = raw_devices()
+                    .await?
+                    .into_iter()
+                    .find(|r| r.udid == d.udid)
+                    .ok_or_else(|| anyhow!("Device {} not found", d.udid))?;
+                let provider = raw.to_provider(UsbmuxdAddr::default(), LABEL);
+                let mut proxy = InstallationProxyClient::connect(&provider).await?;
+                Ok(proxy.uninstall(bundle_id, None).await?)
+            }
+            Target::Tv(t) => t.uninstall_app(bundle_id).await,
+        }
+    }
+
     pub async fn is_app_installed(&mut self, bundle_id: &str) -> Result<bool> {
         Ok(self.user_apps().await?.iter().any(|(id, _)| id == bundle_id))
     }
